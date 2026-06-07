@@ -170,7 +170,7 @@ def clean_customer_name(name: str) -> str:
     if not isinstance(name, str) or not name.strip():
         return ""
 
-    cleaned = safe_str(name)
+    cleaned = str(name).strip()
 
     # ── Step 1: Arabic normalization ──
     cleaned = normalize_arabic(cleaned)
