@@ -12,210 +12,212 @@ import re
 # ─────────────────────────────────────────────
 
 REQUIRED_COLUMNS = [
-    "Year",
-    "Month",
-    "Visit Date",
-    "Customer Name",
-    "Customer Category",
-    "Governorate",
-    "District",
-    "Visit Notes",
-    "Total Visit Flag",
-    "Unique Customer Flag",
-    "Sales Rep Name",
-    "Current Customer",
-    "Target Customer",
-    "Potential Customer",
-    "New Customer",
-    "Not Interested Customer",
-    "Former Customer",
+    "Year", "Month", "Visit Date", "Customer Name", "Customer Category",
+    "Governorate", "District", "Visit Notes", "Total Visit Flag",
+    "Unique Customer Flag", "Sales Rep Name", "Current Customer",
+    "Target Customer", "Potential Customer", "New Customer",
+    "Not Interested Customer", "Former Customer",
 ]
 
 # ─────────────────────────────────────────────
-# COLUMN ALIASES (Arabic or alternate names)
+# COLUMN ALIASES
 # ─────────────────────────────────────────────
 
 COLUMN_ALIASES = {
-    "السنة": "Year",
-    "الشهر": "Month",
-    "تاريخ الزيارة": "Visit Date",
-    "اسم العميل": "Customer Name",
-    "فئة العميل": "Customer Category",
-    "المحافظة": "Governorate",
-    "المنطقة": "District",
-    "ملاحظات الزيارة": "Visit Notes",
-    "إجمالي الزيارات": "Total Visit Flag",
-    "عميل فريد": "Unique Customer Flag",
-    "اسم المندوب": "Sales Rep Name",
-    "عميل حالي": "Current Customer",
-    "عميل مستهدف": "Target Customer",
-    "عميل محتمل": "Potential Customer",
-    "عميل جديد": "New Customer",
-    "غير مهتم": "Not Interested Customer",
-    "عميل سابق": "Former Customer",
+    "السنة": "Year", "الشهر": "Month", "تاريخ الزيارة": "Visit Date",
+    "اسم العميل": "Customer Name", "فئة العميل": "Customer Category",
+    "المحافظة": "Governorate", "المنطقة": "District",
+    "ملاحظات الزيارة": "Visit Notes", "إجمالي الزيارات": "Total Visit Flag",
+    "عميل فريد": "Unique Customer Flag", "اسم المندوب": "Sales Rep Name",
+    "عميل حالي": "Current Customer", "عميل مستهدف": "Target Customer",
+    "عميل محتمل": "Potential Customer", "عميل جديد": "New Customer",
+    "غير مهتم": "Not Interested Customer", "عميل سابق": "Former Customer",
 }
 
 # ─────────────────────────────────────────────
-# CUSTOMER STATUS LABELS
+# STATUS LABELS & COLORS
 # ─────────────────────────────────────────────
 
 STATUS_LABELS = {
-    "current": "Current Customer",
-    "potential": "Potential Customer",
-    "target": "Target Customer",
-    "new": "New Customer",
-    "former": "Former Customer",
-    "not_interested": "Not Interested",
+    "current": "Current Customer", "potential": "Potential Customer",
+    "target": "Target Customer", "new": "New Customer",
+    "former": "Former Customer", "not_interested": "Not Interested",
     "unclassified": "Unclassified",
 }
 
 STATUS_COLORS = {
-    "Current Customer":    "#70AD47",
-    "Potential Customer":  "#2E75B6",
-    "Target Customer":     "#FFC000",
-    "New Customer":        "#1F4E79",
-    "Former Customer":     "#A9A9A9",
-    "Not Interested":      "#C00000",
-    "Unclassified":        "#D9D9D9",
+    "Current Customer":   "#70AD47",
+    "Potential Customer": "#2E75B6",
+    "Target Customer":    "#FFC000",
+    "New Customer":       "#1F4E79",
+    "Former Customer":    "#A9A9A9",
+    "Not Interested":     "#C00000",
+    "Unclassified":       "#D9D9D9",
 }
 
-# ─────────────────────────────────────────────
-# ARABIC TEXT HELPERS
-# ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
+# BASIC HELPERS  (must come first — used by everything below)
+# ═══════════════════════════════════════════════════════════════════
+
+def safe_str(val) -> str:
+    """Convert any value to a clean string; return empty string for NaN/None."""
+    if val is None:
+        return ""
+    if isinstance(val, float) and np.isnan(val):
+        return ""
+    return str(val).strip()
+
+
+def contains_arabic(text: str) -> bool:
+    """Return True if text contains Arabic characters."""
+    if not isinstance(text, str):
+        return False
+    return bool(re.search(r"[\u0600-\u06FF]", text))
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ARABIC TEXT NORMALIZATION
+# ═══════════════════════════════════════════════════════════════════
+
+# Pre-compiled regex patterns for performance
+_RE_TATWEEL    = re.compile(r"ـ")
+_RE_TASHKEEL   = re.compile(
+    r"[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E4\u06E7\u06E8\u06EA-\u06ED]"
+)
+_RE_ALEF       = re.compile(r"[إأآٱ]")
+_RE_TA_MARBUTA = re.compile(r"ة")
+_RE_YA         = re.compile(r"[يى]")
+_RE_WAW        = re.compile(r"ؤ")
+_RE_YA2        = re.compile(r"ئ")
+_RE_SPACES     = re.compile(r"\s+")
+
 
 def normalize_arabic(text: str) -> str:
     """
-    Normalize Arabic text for keyword matching:
-    - Strip whitespace
-    - Unify Alef / Ya / Ta Marbuta variants
-    - Remove Tashkeel (diacritics)
+    Full Arabic normalization for keyword matching:
     - Remove Tatweel (kashida ـ)
-    - Normalize spaces
+    - Remove Tashkeel (diacritics)
+    - Unify Alef variants  → ا
+    - Unify Ta Marbuta     → ه
+    - Unify Ya variants    → ي
+    - Unify Waw/Ya Hamza   → و / ي
+    - Collapse multiple spaces
     """
     if not isinstance(text, str):
         return ""
-
-    text = text.strip()
-
-    # ── Remove Tatweel (kashida) ──
-    text = re.sub(r"ـ", "", text)
-
-    # ── Remove Tashkeel / diacritics ──
-    tashkeel = re.compile(r"[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E4\u06E7\u06E8\u06EA-\u06ED]")
-    text = tashkeel.sub("", text)
-
-    # ── Unify Alef variants → ا ──
-    text = re.sub(r"[إأآٱ]", "ا", text)
-
-    # ── Unify Ta Marbuta → ه ──
-    text = re.sub(r"ة", "ه", text)
-
-    # ── Unify Ya variants → ي ──
-    text = re.sub(r"[يى]", "ي", text)
-
-    # ── Unify Waw variants ──
-    text = re.sub(r"ؤ", "و", text)
-
-    # ── Unify Hamza on Alef ──
-    text = re.sub(r"ئ", "ي", text)
-
-    # ── Normalize multiple spaces → single space ──
-    text = re.sub(r"\s+", " ", text).strip()
-
+    text = _RE_TATWEEL.sub("", text)
+    text = _RE_TASHKEEL.sub("", text)
+    text = _RE_ALEF.sub("ا", text)
+    text = _RE_TA_MARBUTA.sub("ه", text)
+    text = _RE_YA.sub("ي", text)
+    text = _RE_WAW.sub("و", text)
+    text = _RE_YA2.sub("ي", text)
+    text = _RE_SPACES.sub(" ", text).strip()
     return text
 
 
-# ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
 # CUSTOMER NAME CLEANING
-# ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
 
-# prefixes to strip from customer names
+# Pattern: "ا/ ", "م/ ", "د/ ", "أ/ " etc. at start of name
+_RE_SLASH_PREFIX = re.compile(r"^[اأإآمدهعأ]\s*/\s*")
+
+# Pattern: handle "ا/احمد" with no space after slash
+_RE_SLASH_PREFIX2 = re.compile(r"^[\w]{1}\s*/\s*")
+
 _NAME_PREFIXES = [
-    "مزرعة", "مزارع", "مزرعه", "شركة", "شركه", "مؤسسة", "مؤسسه",
-    "محل", "محلات", "مصنع", "مصانع", "مجمع", "مجموعة", "مجموعه",
-    "م /", "م/", "أ /", "أ/", "ا/", "د /", "د/", "المهندس",
-    "الحاج", "الحاجة", "الشيخ", "السيد", "الاستاذ", "الأستاذ",
-    "مندوب", "صاحب",
+    # titles
+    "الاستاذ", "الأستاذ", "المهندس", "الدكتور", "الدكتوره",
+    "الحاج", "الحاجه", "الحاجة", "الشيخ", "السيد", "السيده",
+    "الانسه", "الآنسة", "استاذ", "أستاذ", "مهندس", "دكتور",
+    "دكتوره", "حاج", "حاجه", "شيخ", "اللواء", "العميد",
+    # business types
+    "مزرعه", "مزرعة", "مزارع", "شركه", "شركة", "مؤسسه",
+    "مؤسسة", "محل", "محلات", "مصنع", "مجمع", "مجموعه", "مجموعة",
+    "مندوب", "صاحب", "موزع",
 ]
 
-# suffixes / noise words to strip
 _NAME_SUFFIXES = [
-    "للدواجن", "للتجارة", "للتجاره", "للانتاج", "للإنتاج",
+    "للدواجن", "للتجاره", "للتجارة", "للانتاج", "للإنتاج",
     "للتسمين", "للبيض", "دواجن", "بروميل", "فروج",
-    "- فرع", "فرع", "( تاجر )", "(تاجر)", "تاجر",
-    "وكيل", "- وكيل",
+    "تاجر", "وكيل", "فرع",
 ]
 
-# noise tokens to remove anywhere in name
-_NOISE_TOKENS = [
-    "ابو", "أبو", "بن", "بنت", "عبد", "عبده",
-]
+# Normalize all prefixes/suffixes once at import
+_NORM_PREFIXES = [normalize_arabic(p) for p in _NAME_PREFIXES]
+_NORM_SUFFIXES = [normalize_arabic(s) for s in _NAME_SUFFIXES]
+
+_RE_PUNCT_START = re.compile(r"^[\-–/\\()\[\]،,\.\s]+")
+_RE_PUNCT_END   = re.compile(r"[\-–/\\()\[\]،,\.\s]+$")
+_RE_DIGITS      = re.compile(r"\b\d{1,3}\b")
 
 
 def clean_customer_name(name: str) -> str:
     """
-    Clean and normalize a customer name for deduplication and matching.
+    Clean and normalize a customer name for deduplication.
 
-    Steps:
-    1. Apply normalize_arabic (Alef/Ya/diacritics/tatweel)
-    2. Strip common prefixes (مزرعة / شركة / الحاج ...)
-    3. Strip common suffixes (للدواجن / دواجن ...)
-    4. Remove extra punctuation and special characters
-    5. Collapse multiple spaces
-    6. Title-case equivalent for Arabic (preserve original casing)
+    What gets removed:
+    ┌─────────────────────────────────────────────────────┐
+    │  ا/ اسلام      →  اسلام                            │
+    │  م/ كريم يوسف  →  كريم يوسف                       │
+    │  الحاج محمود   →  محمود                            │
+    │  مزرعة أحمد    →  احمد                             │
+    │  شركة السلام للدواجن  →  السلام                   │
+    │  أحمد / إبراهيم →  احمد / ابراهيم (normalized)   │
+    └─────────────────────────────────────────────────────┘
 
-    Returns cleaned name. Original is preserved in the DataFrame;
-    the cleaned version is used only for grouping/deduplication.
+    Returns cleaned + normalized name.
+    Original name is preserved in 'Customer Name' column.
+    Cleaned name goes into 'Customer Name Cleaned' column.
     """
     if not isinstance(name, str) or not name.strip():
         return ""
 
-    cleaned = str(name).strip()
+    text = safe_str(name)
 
-    # ── Step 1: Arabic normalization ──
-    cleaned = normalize_arabic(cleaned)
+    # ── 1. Full Arabic normalization ──
+    text = normalize_arabic(text)
 
-    # ── Step 2: Remove leading prefixes ──
+    # ── 2. Remove slash-style prefix: "ا/ " "م/ " "د/ " etc. ──
+    #    Covers: "ا/ احمد", "ا/احمد", "م / كريم"
+    text = re.sub(r"^[اأإآمدهعأبتث]\s*/\s*", "", text).strip()
+
+    # ── 3. Remove title / business prefixes ──
     changed = True
     while changed:
         changed = False
-        for prefix in _NAME_PREFIXES:
-            prefix_norm = normalize_arabic(prefix)
-            if cleaned.startswith(prefix_norm + " ") or cleaned == prefix_norm:
-                cleaned = cleaned[len(prefix_norm):].strip()
+        text = text.strip()
+        for prefix_norm in _NORM_PREFIXES:
+            if text.startswith(prefix_norm + " ") or text == prefix_norm:
+                text = text[len(prefix_norm):].strip()
                 changed = True
-            # Also handle prefix without space (e.g. "م/أحمد")
-            if cleaned.startswith(prefix_norm):
-                cleaned = cleaned[len(prefix_norm):].strip()
+            elif text.startswith(prefix_norm):
+                text = text[len(prefix_norm):].strip()
                 changed = True
 
-    # ── Step 3: Remove trailing suffixes ──
-    for suffix in _NAME_SUFFIXES:
-        suffix_norm = normalize_arabic(suffix)
-        if cleaned.endswith(" " + suffix_norm) or cleaned == suffix_norm:
-            cleaned = cleaned[: -len(suffix_norm)].strip()
-        if cleaned.endswith(suffix_norm):
-            cleaned = cleaned[: -len(suffix_norm)].strip()
+    # ── 4. Remove trailing suffixes ──
+    for suffix_norm in _NORM_SUFFIXES:
+        if text.endswith(" " + suffix_norm):
+            text = text[: -(len(suffix_norm) + 1)].strip()
+        elif text.endswith(suffix_norm) and len(text) > len(suffix_norm):
+            text = text[: -len(suffix_norm)].strip()
 
-    # ── Step 4: Remove punctuation noise ──
-    # Remove brackets, slashes, dashes at start/end
-    cleaned = re.sub(r"^[\-–/\\()\[\]،,\.]+", "", cleaned)
-    cleaned = re.sub(r"[\-–/\\()\[\]،,\.]+$", "", cleaned)
+    # ── 5. Clean leading / trailing punctuation ──
+    text = _RE_PUNCT_START.sub("", text)
+    text = _RE_PUNCT_END.sub("", text)
 
-    # ── Step 5: Remove numbers-only segments ──
-    cleaned = re.sub(r"\b\d{1,3}\b", "", cleaned)
+    # ── 6. Remove isolated numbers (e.g. "مزرعة 12") ──
+    text = _RE_DIGITS.sub("", text)
 
-    # ── Step 6: Collapse spaces ──
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    # ── 7. Collapse spaces ──
+    text = _RE_SPACES.sub(" ", text).strip()
 
-    return cleaned
+    return text if text else normalize_arabic(safe_str(name))
 
 
 def deduplicate_customer_names(df: pd.DataFrame, name_col: str = "Customer Name") -> pd.DataFrame:
-    """
-    Add a 'Customer Name Cleaned' column to the DataFrame.
-    Used for grouping/analytics without overwriting the original name.
-    """
+    """Add 'Customer Name Cleaned' column used for grouping without overwriting original."""
     if name_col not in df.columns:
         return df
     df = df.copy()
@@ -223,75 +225,73 @@ def deduplicate_customer_names(df: pd.DataFrame, name_col: str = "Customer Name"
     return df
 
 
-def find_similar_customers(df: pd.DataFrame, threshold: int = 85) -> pd.DataFrame:
+def find_similar_customers(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Find customer names that are likely duplicates based on cleaned names.
-    Returns a DataFrame of (Original Name, Cleaned Name, Match Count).
+    Return a summary of cleaned customer names.
+    Flags names that have multiple spelling variants (potential duplicates).
     """
     if "Customer Name" not in df.columns:
         return pd.DataFrame()
-
     df_temp = deduplicate_customer_names(df)
-    cleaned_counts = (
+    summary = (
         df_temp.groupby("Customer Name Cleaned")
         .agg(
             Visit_Count=("Customer Name", "count"),
-            Original_Names=("Customer Name", lambda x: " | ".join(x.unique()[:5])),
+            Original_Names=("Customer Name", lambda x: " | ".join(sorted(x.unique()[:6]))),
         )
         .reset_index()
         .rename(columns={
             "Customer Name Cleaned": "Cleaned Name",
-            "Visit_Count":          "Visit Count",
-            "Original_Names":       "Original Name Variants",
+            "Visit_Count":           "Visit Count",
+            "Original_Names":        "Original Name Variants",
         })
         .sort_values("Visit Count", ascending=False)
+        .reset_index(drop=True)
     )
-
-    # Flag names with multiple variants (potential duplicates)
-    cleaned_counts["Has Variants"] = cleaned_counts["Original Name Variants"].str.contains(r"\|")
-
-    return cleaned_counts
+    summary["Has Variants"] = summary["Original Name Variants"].str.contains(r"\|", regex=True)
+    return summary
 
 
-# ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
 # FILE LOADING
-# ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
 
-def load_excel(uploaded_file) -> tuple[pd.DataFrame | None, str]:
-    """
-    Load an uploaded Excel file into a DataFrame.
-    Returns (df, error_message). error_message is empty string on success.
-    """
+def load_excel(uploaded_file):
     try:
         df = pd.read_excel(uploaded_file, engine="openpyxl")
-        # Rename columns using alias map
         df = df.rename(columns=COLUMN_ALIASES)
+
+        # Auto-detect header row if columns are mostly unnamed
+        unnamed_count = sum(1 for c in df.columns if "Unnamed" in str(c))
+        if unnamed_count > len(df.columns) / 2:
+            df = pd.read_excel(uploaded_file, engine="openpyxl", header=1)
+            df = df.rename(columns=COLUMN_ALIASES)
+        unnamed_count = sum(1 for c in df.columns if "Unnamed" in str(c))
+        if unnamed_count > len(df.columns) / 2:
+            df = pd.read_excel(uploaded_file, engine="openpyxl", header=2)
+            df = df.rename(columns=COLUMN_ALIASES)
+
+        df = df.dropna(how="all").reset_index(drop=True)
         return df, ""
     except Exception as e:
         return None, f"Failed to read file: {e}"
 
 
-# ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
 # COLUMN VALIDATION
-# ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
 
-def validate_columns(df: pd.DataFrame) -> tuple[bool, list[str], list[str]]:
-    """
-    Validate that required columns are present.
-    Returns (is_valid, missing_cols, present_cols).
-    """
+def validate_columns(df: pd.DataFrame):
     present = list(df.columns)
     missing = [c for c in REQUIRED_COLUMNS if c not in present]
-    is_valid = len(missing) == 0
-    return is_valid, missing, present
+    return len(missing) == 0, missing, present
 
 
-# ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
 # DATE PARSING
-# ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
 
 def parse_dates(df: pd.DataFrame) -> pd.DataFrame:
-    """Parse and clean the Visit Date column."""
     if "Visit Date" not in df.columns:
         return df
     df = df.copy()
@@ -299,18 +299,18 @@ def parse_dates(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-# ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
 # DATA CLEANING
-# ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
 
 def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Apply baseline cleaning:
-    - Strip string columns
-    - Fill NaN in text columns with empty string
-    - Parse dates
-    - Sort by Visit Date ascending
-    - Add Customer Name Cleaned column
+    Full pipeline:
+    1. Strip / fill text columns
+    2. Parse flag columns
+    3. Parse dates
+    4. Sort by Visit Date
+    5. Add Customer Name Cleaned column
     """
     df = df.copy()
 
@@ -321,10 +321,6 @@ def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     for col in text_cols:
         if col in df.columns:
             df[col] = df[col].apply(safe_str)
-
-    # ── Customer Name Cleaning ──
-    if "Customer Name" in df.columns:
-        df["Customer Name Cleaned"] = df["Customer Name"].apply(clean_customer_name)
 
     flag_cols = [
         "Current Customer", "Target Customer", "Potential Customer",
@@ -337,55 +333,49 @@ def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
     df = parse_dates(df)
     df = df.sort_values("Visit Date", ascending=True).reset_index(drop=True)
+
+    # ── Customer Name Cleaning ──
+    if "Customer Name" in df.columns:
+        df["Customer Name Cleaned"] = df["Customer Name"].apply(clean_customer_name)
+
     return df
 
 
-# ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
 # SUMMARY STATS
-# ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
 
 def basic_stats(df: pd.DataFrame) -> dict:
-    """Return a dict of basic dataset statistics."""
-    stats = {
-        "total_records": len(df),
+    return {
+        "total_records":    len(df),
         "unique_customers": df["Customer Name"].nunique() if "Customer Name" in df.columns else 0,
-        "unique_reps": df["Sales Rep Name"].nunique() if "Sales Rep Name" in df.columns else 0,
+        "unique_reps":      df["Sales Rep Name"].nunique() if "Sales Rep Name" in df.columns else 0,
         "date_range_start": df["Visit Date"].min() if "Visit Date" in df.columns else None,
-        "date_range_end": df["Visit Date"].max() if "Visit Date" in df.columns else None,
-        "governorates": df["Governorate"].nunique() if "Governorate" in df.columns else 0,
+        "date_range_end":   df["Visit Date"].max() if "Visit Date" in df.columns else None,
+        "governorates":     df["Governorate"].nunique() if "Governorate" in df.columns else 0,
     }
-    return stats
 
 
-# ─────────────────────────────────────────────
-# DATE HELPERS
-# ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
+# DATE / NUMBER HELPERS
+# ═══════════════════════════════════════════════════════════════════
 
-def days_since(last_date, reference_date=None) -> int | None:
-    """Return number of days between last_date and reference_date (today if None)."""
+def days_since(last_date, reference_date=None):
     if reference_date is None:
         reference_date = pd.Timestamp(datetime.today().date())
     if pd.isnull(last_date):
         return None
-    delta = reference_date - pd.Timestamp(last_date)
-    return delta.days
+    return (reference_date - pd.Timestamp(last_date)).days
 
 
-def months_list(df: pd.DataFrame) -> list[str]:
-    """Return sorted list of 'YYYY-MM' strings from Visit Date column."""
+def months_list(df: pd.DataFrame) -> list:
     if "Visit Date" not in df.columns:
         return []
-    dates = df["Visit Date"].dropna()
-    months = dates.dt.to_period("M").astype(str).unique().tolist()
+    months = df["Visit Date"].dropna().dt.to_period("M").astype(str).unique().tolist()
     return sorted(months)
 
 
-# ─────────────────────────────────────────────
-# NUMBER FORMATTING
-# ─────────────────────────────────────────────
-
 def fmt_number(n) -> str:
-    """Format an integer with comma separators."""
     try:
         return f"{int(n):,}"
     except Exception:
@@ -393,10 +383,7 @@ def fmt_number(n) -> str:
 
 
 def fmt_pct(n, decimals=1) -> str:
-    """Format a float as a percentage string."""
     try:
         return f"{float(n):.{decimals}f}%"
     except Exception:
         return "—"
-
-
