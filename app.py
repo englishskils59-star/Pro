@@ -1,13 +1,13 @@
 # app.py
-# WDI Visit Analytics Engine
-# Main Streamlit application — 5 pages, fully offline, Arabic RTL support.
-#
-# Run with:  streamlit run app.py
+# WDI Visit Analytics Engine — v2.0
+# Persistent Storage + Override System + 6 Pages
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import plotly.express as px
+import io
 
 from utils import (
     load_excel, validate_columns, clean_dataframe,
@@ -25,6 +25,12 @@ from export_manager import (
     export_executive_dashboard, export_classification_results,
     export_followup_customers,
 )
+from storage_manager import (
+    load_config, save_config, set_data_dir, get_data_dir,
+    has_saved_data, get_saved_metadata, load_session, save_session,
+    export_unclassified, import_overrides, clear_overrides, clear_all_data,
+    storage_status, VALID_STATUSES,
+)
 
 # ═══════════════════════════════════════════════════════════════════
 # PAGE CONFIG
@@ -38,182 +44,53 @@ st.set_page_config(
 )
 
 # ═══════════════════════════════════════════════════════════════════
-# GLOBAL CSS  (Arabic RTL + corporate branding)
+# GLOBAL CSS
 # ═══════════════════════════════════════════════════════════════════
 
 st.markdown("""
 <style>
-/* ── Google Fonts ── */
 @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&display=swap');
-
-/* ── Root variables ── */
 :root {
-    --primary:   #1F4E79;
-    --secondary: #2E75B6;
-    --accent:    #70AD47;
-    --bg:        #F5F7FA;
-    --text:      #1A1A2E;
-    --card-bg:   #FFFFFF;
-    --border:    #B8CCE4;
+    --primary:#1F4E79; --secondary:#2E75B6; --accent:#70AD47;
+    --bg:#F5F7FA; --text:#1A1A2E; --card-bg:#FFFFFF; --border:#B8CCE4;
 }
-
-/* ── Global ── */
-html, body, [class*="css"] {
-    font-family: 'Tajawal', 'Segoe UI', sans-serif !important;
-    background-color: var(--bg) !important;
-    color: var(--text) !important;
-}
-
-/* ── Sidebar ── */
-[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, var(--primary) 0%, var(--secondary) 100%) !important;
-}
-[data-testid="stSidebar"] * {
-    color: #FFFFFF !important;
-}
-[data-testid="stSidebar"] .stRadio label {
-    font-size: 15px !important;
-    padding: 6px 0 !important;
-}
-
-/* ── Metric cards ── */
-[data-testid="metric-container"] {
-    background: var(--card-bg);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 16px 12px !important;
-    box-shadow: 0 2px 8px rgba(31,78,121,0.08);
-}
-[data-testid="metric-container"] [data-testid="stMetricLabel"] {
-    font-size: 13px !important;
-    color: var(--secondary) !important;
-    font-weight: 600 !important;
-}
-[data-testid="metric-container"] [data-testid="stMetricValue"] {
-    font-size: 26px !important;
-    color: var(--primary) !important;
-    font-weight: 700 !important;
-}
-
-/* ── Headers ── */
-h1 { color: var(--primary) !important; font-weight: 700 !important; }
-h2 { color: var(--secondary) !important; }
-h3 { color: var(--primary) !important; }
-
-/* ── Page title banner ── */
-.page-banner {
-    background: linear-gradient(90deg, var(--primary) 0%, var(--secondary) 100%);
-    color: #fff;
-    padding: 18px 28px;
-    border-radius: 12px;
-    margin-bottom: 24px;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-}
-.page-banner h1 {
-    color: #fff !important;
-    margin: 0 !important;
-    font-size: 22px !important;
-}
-.page-banner p {
-    color: rgba(255,255,255,0.85);
-    margin: 0 !important;
-    font-size: 13px;
-}
-
-/* ── Section cards ── */
-.section-card {
-    background: var(--card-bg);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 20px 22px;
-    margin-bottom: 18px;
-    box-shadow: 0 2px 6px rgba(31,78,121,0.06);
-}
-
-/* ── Status badges ── */
-.badge {
-    display: inline-block;
-    padding: 3px 12px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 600;
-    color: #fff;
-}
-
-/* ── Tables — RTL friendly ── */
-[data-testid="stDataFrame"] {
-    direction: ltr;
-}
-
-/* ── Dividers ── */
-hr {
-    border-color: var(--border) !important;
-    margin: 18px 0 !important;
-}
-
-/* ── Buttons ── */
-.stDownloadButton > button {
-    background: var(--accent) !important;
-    color: #fff !important;
-    border: none !important;
-    border-radius: 8px !important;
-    font-weight: 600 !important;
-    padding: 8px 20px !important;
-}
-.stDownloadButton > button:hover {
-    background: var(--primary) !important;
-}
-.stButton > button {
-    background: var(--secondary) !important;
-    color: #fff !important;
-    border: none !important;
-    border-radius: 8px !important;
-    font-weight: 600 !important;
-}
-
-/* ── Expander ── */
-[data-testid="stExpander"] {
-    border: 1px solid var(--border) !important;
-    border-radius: 8px !important;
-}
-
-/* ── Upload area ── */
-[data-testid="stFileUploader"] {
-    border: 2px dashed var(--secondary) !important;
-    border-radius: 10px !important;
-    background: #EBF3FB !important;
-}
-
-/* ── Tabs ── */
-[data-baseweb="tab-list"] {
-    border-bottom: 2px solid var(--border) !important;
-}
-[data-baseweb="tab"] {
-    color: var(--secondary) !important;
-    font-weight: 600 !important;
-}
+html,body,[class*="css"]{font-family:'Tajawal','Segoe UI',sans-serif!important;background-color:var(--bg)!important;color:var(--text)!important;}
+[data-testid="stSidebar"]{background:linear-gradient(180deg,var(--primary) 0%,var(--secondary) 100%)!important;}
+[data-testid="stSidebar"] *{color:#FFFFFF!important;}
+[data-testid="stSidebar"] .stRadio label{font-size:15px!important;padding:6px 0!important;}
+[data-testid="metric-container"]{background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:16px 12px!important;box-shadow:0 2px 8px rgba(31,78,121,.08);}
+[data-testid="metric-container"] [data-testid="stMetricLabel"]{font-size:13px!important;color:var(--secondary)!important;font-weight:600!important;}
+[data-testid="metric-container"] [data-testid="stMetricValue"]{font-size:26px!important;color:var(--primary)!important;font-weight:700!important;}
+h1{color:var(--primary)!important;font-weight:700!important;}
+h2{color:var(--secondary)!important;}
+h3{color:var(--primary)!important;}
+.page-banner{background:linear-gradient(90deg,var(--primary) 0%,var(--secondary) 100%);color:#fff;padding:18px 28px;border-radius:12px;margin-bottom:24px;display:flex;align-items:center;gap:14px;}
+.page-banner h1{color:#fff!important;margin:0!important;font-size:22px!important;}
+.page-banner p{color:rgba(255,255,255,.85);margin:0!important;font-size:13px;}
+.section-card{background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:20px 22px;margin-bottom:18px;box-shadow:0 2px 6px rgba(31,78,121,.06);}
+hr{border-color:var(--border)!important;margin:18px 0!important;}
+.stDownloadButton>button{background:var(--accent)!important;color:#fff!important;border:none!important;border-radius:8px!important;font-weight:600!important;padding:8px 20px!important;}
+.stDownloadButton>button:hover{background:var(--primary)!important;}
+.stButton>button{background:var(--secondary)!important;color:#fff!important;border:none!important;border-radius:8px!important;font-weight:600!important;}
+[data-testid="stExpander"]{border:1px solid var(--border)!important;border-radius:8px!important;}
+[data-testid="stFileUploader"]{border:2px dashed var(--secondary)!important;border-radius:10px!important;background:#EBF3FB!important;}
+[data-baseweb="tab-list"]{border-bottom:2px solid var(--border)!important;}
+[data-baseweb="tab"]{color:var(--secondary)!important;font-weight:600!important;}
 </style>
 """, unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
-# SESSION STATE INITIALISATION
+# SESSION STATE
 # ═══════════════════════════════════════════════════════════════════
 
 def _init_state():
     defaults = {
-        "raw_df":          None,
-        "clean_df":        None,
-        "classified_df":   None,
-        "journey_df":      None,
-        "rep_kpi_df":      None,
-        "exec_data":       None,
-        "analytics_data":  None,
-        "rep_figures":     None,
-        "file_name":       "",
-        "processing_done": False,
+        "raw_df": None, "clean_df": None, "classified_df": None,
+        "journey_df": None, "rep_kpi_df": None, "exec_data": None,
+        "analytics_data": None, "rep_figures": None,
+        "file_name": "", "processing_done": False,
+        "storage_loaded": False,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -226,22 +103,17 @@ _init_state()
 # SHARED UI HELPERS
 # ═══════════════════════════════════════════════════════════════════
 
-def page_banner(icon: str, title: str, subtitle: str = ""):
+def page_banner(icon, title, subtitle=""):
     st.markdown(f"""
     <div class="page-banner">
         <span style="font-size:32px">{icon}</span>
-        <div>
-            <h1>{title}</h1>
-            {'<p>' + subtitle + '</p>' if subtitle else ''}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+        <div><h1>{title}</h1>{'<p>'+subtitle+'</p>' if subtitle else ''}</div>
+    </div>""", unsafe_allow_html=True)
 
 
 def kpi_row(metrics: dict, cols_per_row: int = 4):
-    """Render a row of st.metric cards."""
     items = list(metrics.items())
-    rows  = [items[i:i + cols_per_row] for i in range(0, len(items), cols_per_row)]
+    rows  = [items[i:i+cols_per_row] for i in range(0, len(items), cols_per_row)]
     for row in rows:
         cols = st.columns(len(row))
         for col, (label, value) in zip(cols, row):
@@ -250,100 +122,133 @@ def kpi_row(metrics: dict, cols_per_row: int = 4):
 
 
 def no_data_warning():
-    st.warning(
-        "⚠️ No data loaded yet. Please upload an Excel file on the **Upload Center** page first.",
-        icon="📂",
-    )
+    st.warning("⚠️ لا توجد بيانات. يرجى رفع ملف Excel من صفحة **Upload Center** أو تحميل البيانات المحفوظة.", icon="📂")
 
 
-def section(title: str):
+def section(title):
     st.markdown(f"<hr><h3>📌 {title}</h3>", unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
-# DATA PROCESSING PIPELINE
+# PIPELINE
 # ═══════════════════════════════════════════════════════════════════
 
-def run_full_pipeline(raw_df: pd.DataFrame):
-    """Clean → Classify → Journey → KPIs → Executive data."""
-    with st.spinner("🔄 Cleaning data..."):
-        clean = clean_dataframe(raw_df)
-        st.session_state["clean_df"] = clean
-
-    with st.spinner("🧠 Running classification engine..."):
-        classified = classify_dataframe(clean)
-        st.session_state["classified_df"] = classified
-
-    with st.spinner("📖 Building customer journey history..."):
-        journey = build_customer_journey(classified)
-        st.session_state["journey_df"] = journey
-
-    with st.spinner("📊 Computing sales rep KPIs..."):
+def rebuild_dashboards():
+    """Rebuild analytics/exec data from classified_df + journey_df."""
+    classified = st.session_state["classified_df"]
+    journey    = st.session_state["journey_df"]
+    with st.spinner("📊 تحديث التحليلات..."):
         rep_kpi, rep_figs = sales_rep_kpi(classified, journey)
         st.session_state["rep_kpi_df"]  = rep_kpi
         st.session_state["rep_figures"] = rep_figs
+        st.session_state["analytics_data"] = customer_analytics_summary(classified, journey)
+        st.session_state["exec_data"]      = executive_dashboard_data(classified, journey, rep_kpi)
 
-    with st.spinner("📈 Building analytics summaries..."):
-        analytics = customer_analytics_summary(classified, journey)
-        st.session_state["analytics_data"] = analytics
 
-    with st.spinner("🏢 Preparing executive dashboard..."):
-        exec_data = executive_dashboard_data(classified, journey, rep_kpi)
-        st.session_state["exec_data"] = exec_data
+def run_full_pipeline(raw_df: pd.DataFrame, uploaded_file=None):
+    with st.spinner("🔄 تنظيف البيانات..."):
+        clean = clean_dataframe(raw_df)
+        st.session_state["clean_df"] = clean
+    with st.spinner("🧠 تصنيف الزيارات..."):
+        classified = classify_dataframe(clean)
+        st.session_state["classified_df"] = classified
+    with st.spinner("📖 بناء رحلة العميل..."):
+        journey = build_customer_journey(classified)
+        st.session_state["journey_df"] = journey
+    with st.spinner("📊 حساب KPIs..."):
+        rep_kpi, rep_figs = sales_rep_kpi(classified, journey)
+        st.session_state["rep_kpi_df"]  = rep_kpi
+        st.session_state["rep_figures"] = rep_figs
+    with st.spinner("📈 تحليلات العملاء..."):
+        st.session_state["analytics_data"] = customer_analytics_summary(classified, journey)
+    with st.spinner("🏢 لوحة التحكم..."):
+        st.session_state["exec_data"] = executive_dashboard_data(classified, journey, rep_kpi)
 
     st.session_state["processing_done"] = True
 
+    # ── Auto-save ──
+    with st.spinner("💾 حفظ البيانات..."):
+        ok, msg = save_session(
+            classified_df=classified,
+            journey_df=journey,
+            rep_kpi_df=rep_kpi,
+            file_name=st.session_state.get("file_name", ""),
+            uploaded_file=uploaded_file,
+        )
+        if ok:
+            st.success(msg)
+        else:
+            st.warning(msg)
+
 
 # ═══════════════════════════════════════════════════════════════════
-# SIDEBAR NAVIGATION
+# AUTO-LOAD SAVED DATA ON FIRST RUN
+# ═══════════════════════════════════════════════════════════════════
+
+if not st.session_state["processing_done"] and not st.session_state["storage_loaded"]:
+    st.session_state["storage_loaded"] = True
+    if has_saved_data():
+        ok, data = load_session()
+        if ok and data:
+            st.session_state["classified_df"] = data["classified_df"]
+            st.session_state["journey_df"]    = data["journey_df"]
+            st.session_state["rep_kpi_df"]    = data["rep_kpi_df"]
+            st.session_state["file_name"]     = data["metadata"].get("file_name", "")
+            rebuild_dashboards()
+            st.session_state["processing_done"] = True
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SIDEBAR
 # ═══════════════════════════════════════════════════════════════════
 
 with st.sidebar:
     st.markdown("""
-    <div style="text-align:center; padding:16px 0 24px">
+    <div style="text-align:center;padding:16px 0 24px">
         <div style="font-size:42px">📊</div>
-        <div style="font-size:17px; font-weight:700; color:#fff; letter-spacing:0.5px">WDI Analytics</div>
-        <div style="font-size:11px; color:rgba(255,255,255,0.7); margin-top:4px">Visit Analytics Engine</div>
-    </div>
-    """, unsafe_allow_html=True)
-
+        <div style="font-size:17px;font-weight:700;color:#fff;letter-spacing:.5px">WDI Analytics</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.7);margin-top:4px">Visit Analytics Engine v2.0</div>
+    </div>""", unsafe_allow_html=True)
     st.markdown("---")
 
-    page = st.radio(
-        "Navigation",
-        options=[
-            "📂 Upload Center",
-            "🧠 Customer Classification",
-            "👥 Customer Analytics",
-            "🏆 Sales Rep Performance",
-            "🏢 Executive Dashboard",
-        ],
-        label_visibility="collapsed",
-    )
+    page = st.radio("Navigation", options=[
+        "📂 Upload Center",
+        "🧠 Customer Classification",
+        "👥 Customer Analytics",
+        "🏆 Sales Rep Performance",
+        "🏢 Executive Dashboard",
+        "⚙️ Settings",
+    ], label_visibility="collapsed")
 
     st.markdown("---")
 
     if st.session_state["processing_done"]:
-        st.success("✅ Data Loaded")
-        if st.session_state["clean_df"] is not None:
-            df_ = st.session_state["clean_df"]
+        classified_ = st.session_state.get("classified_df")
+        journey_    = st.session_state.get("journey_df")
+        meta = get_saved_metadata()
+
+        st.success("✅ البيانات محملة")
+        st.markdown(f"""
+        <div style="font-size:12px;color:rgba(255,255,255,.85)">
+        📄 <b>{st.session_state.get('file_name','—')}</b><br>
+        🗒️ {fmt_number(len(classified_)) if classified_ is not None else '0'} زيارة<br>
+        👤 {fmt_number(classified_['Customer Name'].nunique()) if classified_ is not None else '0'} عميل<br>
+        🧑‍💼 {fmt_number(classified_['Sales Rep Name'].nunique()) if classified_ is not None else '0'} مندوب<br>
+        💾 آخر حفظ: {meta.get('last_saved','—')[:16] if meta.get('last_saved') else '—'}
+        </div>""", unsafe_allow_html=True)
+
+        if meta.get("override_count", 0) > 0:
             st.markdown(f"""
-            <div style="font-size:12px; color:rgba(255,255,255,0.8)">
-            📄 <b>{st.session_state['file_name']}</b><br>
-            🗒️ {fmt_number(len(df_))} records<br>
-            👤 {fmt_number(df_['Customer Name'].nunique())} customers<br>
-            🧑‍💼 {fmt_number(df_['Sales Rep Name'].nunique())} reps
-            </div>
-            """, unsafe_allow_html=True)
+            <div style="margin-top:8px;background:rgba(112,173,71,.25);padding:6px 10px;border-radius:6px;font-size:12px">
+            ✏️ {meta['override_count']} تصنيف يدوي محفوظ
+            </div>""", unsafe_allow_html=True)
     else:
-        st.info("📂 No data loaded")
+        st.info("📂 لا توجد بيانات")
 
     st.markdown("---")
     st.markdown(
-        "<div style='font-size:10px; color:rgba(255,255,255,0.5); text-align:center'>"
-        "WDI Visit Analytics Engine<br>v1.0 — Fully Offline</div>",
-        unsafe_allow_html=True,
-    )
+        "<div style='font-size:10px;color:rgba(255,255,255,.4);text-align:center'>WDI Analytics v2.0<br>Fully Offline</div>",
+        unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -351,17 +256,26 @@ with st.sidebar:
 # ═══════════════════════════════════════════════════════════════════
 
 if page == "📂 Upload Center":
-    page_banner("📂", "Upload Center", "Upload your Excel visit report and validate the data")
+    page_banner("📂", "Upload Center", "رفع ملف Excel وتشغيل محرك التصنيف")
 
-    # ── Upload widget ──
+    # ── Show saved data status ──
+    if has_saved_data():
+        meta = get_saved_metadata()
+        st.info(f"""
+        💾 **توجد بيانات محفوظة** من جلسة سابقة:
+        الملف: `{meta.get('file_name','—')}` |
+        {fmt_number(meta.get('total_records',0))} زيارة |
+        آخر حفظ: {meta.get('last_saved','—')[:16]}
+        """)
+
     uploaded = st.file_uploader(
-        "Drop your Excel file here or click to browse",
-        type=["xlsx", "xls"],
-        help="Supports .xlsx and .xls files. First row must be column headers.",
+        "ارفع ملف Excel هنا",
+        type=["xlsx","xls"],
+        help="الصف الأول يجب أن يحتوي على أسماء الأعمدة",
     )
 
     if uploaded is not None:
-        with st.spinner("Loading file..."):
+        with st.spinner("جارٍ تحميل الملف..."):
             raw_df, err = load_excel(uploaded)
 
         if err:
@@ -369,71 +283,60 @@ if page == "📂 Upload Center":
         else:
             st.session_state["raw_df"]   = raw_df
             st.session_state["file_name"] = uploaded.name
-            st.session_state["processing_done"] = False  # reset if new file
+            st.session_state["processing_done"] = False
 
-            # ── Column validation ──
             is_valid, missing, present = validate_columns(raw_df)
+            c1, c2 = st.columns([2, 1])
 
-            col1, col2 = st.columns([2, 1])
-            with col1:
+            with c1:
                 if is_valid:
-                    st.success("✅ All required columns found!")
+                    st.success("✅ كل الأعمدة المطلوبة موجودة")
                 else:
-                    st.error(f"❌ Missing columns: {', '.join(missing)}")
-                    st.info("Please check your Excel file and ensure all required columns are present.")
+                    st.error(f"❌ أعمدة ناقصة: {', '.join(missing)}")
 
-            with col2:
+            with c2:
                 stats = basic_stats(raw_df)
                 st.markdown(f"""
                 <div class="section-card">
-                    <b>📋 File Summary</b><br><br>
-                    📄 <b>File:</b> {uploaded.name}<br>
-                    🗒️ <b>Records:</b> {fmt_number(stats['total_records'])}<br>
-                    👥 <b>Unique Customers:</b> {fmt_number(stats['unique_customers'])}<br>
-                    🧑‍💼 <b>Sales Reps:</b> {fmt_number(stats['unique_reps'])}<br>
-                    🗺️ <b>Governorates:</b> {fmt_number(stats['governorates'])}<br>
-                    📅 <b>From:</b> {str(stats['date_range_start'])[:10] if stats['date_range_start'] else '—'}<br>
-                    📅 <b>To:</b> {str(stats['date_range_end'])[:10] if stats['date_range_end'] else '—'}
-                </div>
-                """, unsafe_allow_html=True)
+                <b>📋 ملخص الملف</b><br><br>
+                📄 <b>{uploaded.name}</b><br>
+                🗒️ {fmt_number(stats['total_records'])} زيارة<br>
+                👥 {fmt_number(stats['unique_customers'])} عميل<br>
+                🧑‍💼 {fmt_number(stats['unique_reps'])} مندوب<br>
+                📅 من {str(stats['date_range_start'])[:10] if stats['date_range_start'] else '—'}<br>
+                📅 إلى {str(stats['date_range_end'])[:10] if stats['date_range_end'] else '—'}
+                </div>""", unsafe_allow_html=True)
 
-            # ── Data preview ──
-            section("Data Preview (First 50 Rows)")
+            section("معاينة البيانات")
             st.dataframe(raw_df.head(50), use_container_width=True, height=350)
 
-            # ── Column status ──
-            section("Column Validation")
+            section("التحقق من الأعمدة")
             col_df = pd.DataFrame({
-                "Column Name": REQUIRED_COLUMNS,
-                "Status": ["✅ Present" if c in present else "❌ Missing" for c in REQUIRED_COLUMNS],
+                "العمود": REQUIRED_COLUMNS,
+                "الحالة": ["✅ موجود" if c in present else "❌ ناقص" for c in REQUIRED_COLUMNS],
             })
             st.dataframe(col_df, use_container_width=True, hide_index=True)
 
-            # ── Process button ──
             st.markdown("<br>", unsafe_allow_html=True)
             if is_valid:
-                if st.button("🚀 Process & Classify Data", use_container_width=True):
-                    run_full_pipeline(raw_df)
-                    st.success("✅ Processing complete! Navigate to other pages to view results.")
+                if st.button("🚀 تشغيل التصنيف وحفظ البيانات", use_container_width=True):
+                    uploaded.seek(0)
+                    run_full_pipeline(raw_df, uploaded_file=uploaded)
+                    st.success("✅ تم التصنيف والحفظ! يمكنك الآن التنقل بين الصفحات.")
                     st.balloons()
-            else:
-                st.warning("Fix the missing columns before processing.")
     else:
-        # Landing state
         st.markdown("""
-        <div class="section-card" style="text-align:center; padding:48px">
+        <div class="section-card" style="text-align:center;padding:48px">
             <div style="font-size:64px">📊</div>
             <h2 style="color:#1F4E79">WDI Visit Analytics Engine</h2>
-            <p style="color:#555; max-width:500px; margin:0 auto 20px">
-                Upload your Excel visit report to automatically classify customers,
-                track journeys, and generate executive analytics — fully offline.
+            <p style="color:#555;max-width:500px;margin:0 auto 20px">
+                ارفع ملف Excel لتصنيف الزيارات وتحليل أداء المندوبين تلقائياً — بدون إنترنت.
             </p>
-        </div>
-        """, unsafe_allow_html=True)
+        </div>""", unsafe_allow_html=True)
 
-        with st.expander("📋 Required Column Names"):
-            cols_df = pd.DataFrame({"Required Columns": REQUIRED_COLUMNS})
-            st.dataframe(cols_df, use_container_width=True, hide_index=True)
+        with st.expander("📋 الأعمدة المطلوبة"):
+            st.dataframe(pd.DataFrame({"الأعمدة المطلوبة": REQUIRED_COLUMNS}),
+                         use_container_width=True, hide_index=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -441,8 +344,7 @@ if page == "📂 Upload Center":
 # ═══════════════════════════════════════════════════════════════════
 
 elif page == "🧠 Customer Classification":
-    page_banner("🧠", "Automatic Customer Classification",
-                "Rule-based keyword scoring engine — No AI, fully offline")
+    page_banner("🧠", "تصنيف العملاء التلقائي", "محرك تصنيف بالكلمات المفتاحية — بدون AI")
 
     if not st.session_state["processing_done"]:
         no_data_warning()
@@ -451,418 +353,300 @@ elif page == "🧠 Customer Classification":
     classified_df = st.session_state["classified_df"]
     journey_df    = st.session_state["journey_df"]
 
-    # ── Summary KPIs ──
-    status_counts = classified_df["Display Status"].value_counts()
     kpi_row({
-        "Total Records":       len(classified_df),
-        "Unique Customers":    classified_df["Customer Name"].nunique(),
-        "Classified":          int((classified_df["Suggested Status"] != "unclassified").sum()),
-        "Unclassified":        int((classified_df["Suggested Status"] == "unclassified").sum()),
+        "إجمالي الزيارات":   len(classified_df),
+        "عملاء فريدون":      classified_df["Customer Name"].nunique(),
+        "تم تصنيفهم":        int((classified_df["Suggested Status"] != "unclassified").sum()),
+        "غير مصنف":          int((classified_df["Suggested Status"] == "unclassified").sum()),
     })
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Tabs ──
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "📋 Classification Results",
-        "🗺️ Customer Journey",
-        "⚙️ Keyword Rules",
-        "📥 Export",
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📋 نتائج التصنيف",
+        "🗺️ رحلة العميل",
+        "✏️ تصنيف يدوي",
+        "⚙️ قواعد الكلمات",
+        "📥 تصدير",
     ])
 
-    # ─── Tab 1: Results table ───
+    # ── Tab 1: Results ──
     with tab1:
-        section("Classification Results")
+        section("نتائج التصنيف")
 
-        # Filters
-        fc1, fc2, fc3 = st.columns(3)
-        with fc1:
-            reps_list = ["All"] + sorted(classified_df["Sales Rep Name"].dropna().unique().tolist())
-            sel_rep = st.selectbox("Filter by Sales Rep", reps_list, key="cls_rep")
-        with fc2:
-            statuses_list = ["All"] + sorted(classified_df["Display Status"].dropna().unique().tolist())
-            sel_status = st.selectbox("Filter by Status", statuses_list, key="cls_status")
-        with fc3:
-            min_conf = st.slider("Min Confidence Score", 0, 100, 0, 5, key="cls_conf")
-
-        filtered = classified_df.copy()
-        if sel_rep != "All":
-            filtered = filtered[filtered["Sales Rep Name"] == sel_rep]
-        if sel_status != "All":
-            filtered = filtered[filtered["Display Status"] == sel_status]
-        filtered = filtered[filtered["Confidence Score"] >= min_conf]
-
-        # ── اختيار طريقة العرض ──
         view_mode = st.radio(
             "طريقة العرض",
-            options=["👤 عميل واحد — الموقف النهائي", "📋 كل الزيارات"],
-            horizontal=True,
-            key="cls_view_mode"
+            ["👤 موقف نهائي لكل عميل", "📋 كل الزيارات"],
+            horizontal=True, key="cls_view_mode",
         )
 
-        # ── عمود عدد الزيارات لكل عميل ──
-        visit_counts = (
-            classified_df.groupby("Customer Name")
-            .size()
-            .reset_index(name="Visit Count")
-        )
+        fc1, fc2, fc3 = st.columns(3)
+        with fc1:
+            reps_list = ["الكل"] + sorted(classified_df["Sales Rep Name"].dropna().unique().tolist())
+            sel_rep = st.selectbox("المندوب", reps_list, key="cls_rep")
+        with fc2:
+            statuses_list = ["الكل"] + sorted(classified_df["Display Status"].dropna().unique().tolist())
+            sel_status = st.selectbox("الحالة", statuses_list, key="cls_status")
+        with fc3:
+            min_conf = st.slider("أقل نسبة ثقة", 0, 100, 0, 5, key="cls_conf")
+
+        filtered = classified_df.copy()
+        if sel_rep    != "الكل": filtered = filtered[filtered["Sales Rep Name"] == sel_rep]
+        if sel_status != "الكل": filtered = filtered[filtered["Display Status"]  == sel_status]
+        filtered = filtered[filtered["Confidence Score"] >= min_conf]
+
+        visit_counts = classified_df.groupby("Customer Name").size().reset_index(name="Visit Count")
         filtered = filtered.merge(visit_counts, on="Customer Name", how="left")
 
-        if view_mode == "👤 عميل واحد — الموقف النهائي":
-
-            # ── آخر زيارة لكل عميل = الموقف النهائي ──
-            final_status_df = (
+        if view_mode == "👤 موقف نهائي لكل عميل":
+            final_df = (
                 filtered.sort_values("Visit Date", ascending=True)
-                .groupby("Customer Name", as_index=False)
-                .last()
+                .groupby("Customer Name", as_index=False).last()
             )
+            date_range = classified_df.groupby("Customer Name")["Visit Date"].agg(
+                First_Visit="min", Last_Visit="max"
+            ).reset_index()
+            final_df = final_df.merge(date_range, on="Customer Name", how="left")
 
-            # ── إضافة أول وآخر تاريخ زيارة ──
-            date_range = (
-                classified_df.groupby("Customer Name")["Visit Date"]
-                .agg(
-                    First_Visit="min",
-                    Last_Visit="max"
-                )
-                .reset_index()
-            )
-            final_status_df = final_status_df.merge(
-                date_range, on="Customer Name", how="left"
-            )
+            for dc in ["First_Visit","Last_Visit","Visit Date"]:
+                if dc in final_df.columns:
+                    final_df[dc] = pd.to_datetime(final_df[dc], errors="coerce").dt.strftime("%Y-%m-%d")
 
-            # ── ترتيب الأعمدة ──
-            display_cols_final = [
-                "Customer Name", "Sales Rep Name", "Governorate",
-                "Display Status", "Visit Count",
-                "First_Visit", "Last_Visit",
-                "Confidence Score", "Matched Keywords",
-                "Classification Reason",
-            ]
-            show_cols_final = [c for c in display_cols_final if c in final_status_df.columns]
+            show_cols = ["Customer Name","Sales Rep Name","Governorate","Display Status",
+                         "Visit Count","First_Visit","Last_Visit","Confidence Score",
+                         "Override Source","Matched Keywords"]
+            show_cols = [c for c in show_cols if c in final_df.columns]
 
-            # ── تنسيق التواريخ ──
-            for dc in ["First_Visit", "Last_Visit", "Visit Date"]:
-                if dc in final_status_df.columns:
-                    final_status_df[dc] = pd.to_datetime(
-                        final_status_df[dc], errors="coerce"
-                    ).dt.strftime("%Y-%m-%d")
+            # Status summary metrics
+            sm = final_df["Display Status"].value_counts()
+            sm_cols = st.columns(min(len(sm), 6))
+            for col, (s, c) in zip(sm_cols, sm.items()):
+                with col: st.metric(s, c)
 
-            # ── إعادة تسمية الأعمدة بالعربي ──
-            final_status_df = final_status_df[show_cols_final].rename(columns={
-                "Customer Name":         "اسم العميل",
-                "Sales Rep Name":        "المندوب",
-                "Governorate":           "المحافظة",
-                "Display Status":        "الحالة النهائية",
-                "Visit Count":           "عدد الزيارات",
-                "First_Visit":           "أول زيارة",
-                "Last_Visit":            "آخر زيارة",
-                "Confidence Score":      "نسبة الثقة",
-                "Matched Keywords":      "الكلمات المفتاحية",
-                "Classification Reason": "سبب التصنيف",
-            })
+            st.info(f"👤 **{len(final_df):,}** عميل فريد")
+            st.dataframe(final_df[show_cols].reset_index(drop=True),
+                         use_container_width=True, height=500)
 
-            st.info(
-                f"👤 إجمالي العملاء: **{len(final_status_df):,}** عميل فريد"
-            )
-
-            # ── ملخص الحالات فوق الجدول ──
-            status_summary = (
-                final_status_df["الحالة النهائية"]
-                .value_counts()
-                .reset_index()
-            )
-            status_summary.columns = ["الحالة", "العدد"]
-            summary_cols = st.columns(len(status_summary))
-            for col, (_, row) in zip(summary_cols, status_summary.iterrows()):
-                with col:
-                    st.metric(row["الحالة"], row["العدد"])
-
-            st.markdown("<br>", unsafe_allow_html=True)
-
-            st.dataframe(
-                final_status_df.reset_index(drop=True),
-                use_container_width=True,
-                height=500,
-            )
-
-            # ── Export الموقف النهائي ──
-            import io
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                final_status_df.to_excel(writer, index=False, sheet_name="الموقف النهائي")
-            st.download_button(
-                "⬇️ تحميل الموقف النهائي Excel",
-                data=output.getvalue(),
-                file_name="Final_Customer_Status.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-
+            out = io.BytesIO()
+            with pd.ExcelWriter(out, engine="openpyxl") as w:
+                final_df[show_cols].to_excel(w, index=False, sheet_name="الموقف النهائي")
+            st.download_button("⬇️ تحميل الموقف النهائي Excel",
+                               data=out.getvalue(),
+                               file_name="Final_Customer_Status.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         else:
-            # ── عرض كل الزيارات كما كان ──
-            display_cols = [
-                "Visit Date", "Customer Name", "Sales Rep Name",
-                "Display Status", "Visit Count", "Confidence Score",
-                "Matched Keywords", "Classification Reason", "Governorate",
-            ]
-            show_cols = [c for c in display_cols if c in filtered.columns]
+            show_cols = ["Visit Date","Customer Name","Sales Rep Name","Display Status",
+                         "Visit Count","Confidence Score","Override Source",
+                         "Matched Keywords","Classification Reason","Governorate"]
+            show_cols = [c for c in show_cols if c in filtered.columns]
+            st.info(f"📋 **{fmt_number(len(filtered))}** زيارة")
+            st.dataframe(filtered[show_cols].reset_index(drop=True),
+                         use_container_width=True, height=500)
 
-            st.info(
-                f"📋 إجمالي الزيارات: **{fmt_number(len(filtered))}** "
-                f"من **{fmt_number(len(classified_df))}**"
-            )
-            st.dataframe(
-                filtered[show_cols].reset_index(drop=True),
-                use_container_width=True,
-                height=500,
-            )
-
-
-    # ─── Tab 2: Customer Journey ───
+    # ── Tab 2: Journey ──
     with tab2:
-        section("Customer Journey History")
+        section("رحلة العميل")
+        search = st.text_input("🔍 ابحث عن عميل", key="journey_search")
+        jdf = journey_df.copy()
+        if search.strip():
+            jdf = jdf[jdf["Customer Name"].str.contains(search.strip(), case=False, na=False)]
 
-        search_name = st.text_input("🔍 Search Customer Name", placeholder="Type to search...", key="journey_search")
+        show_j = ["Customer Name","Latest Status","Latest Confidence","Visit Count",
+                  "First Visit Date","Last Visit Date","Days Since Last Visit",
+                  "Governorate","Sales Rep Name"]
+        show_j = [c for c in show_j if c in jdf.columns]
+        st.dataframe(jdf[show_j].reset_index(drop=True), use_container_width=True, height=420)
 
-        if search_name.strip():
-            mask = journey_df["Customer Name"].str.contains(search_name.strip(), case=False, na=False)
-            journey_filtered = journey_df[mask]
+        if not jdf.empty:
+            st.markdown("---")
+            sel_cust = st.selectbox("اختر عميلاً لعرض رحلته", jdf["Customer Name"].tolist(), key="jd_sel")
+            if sel_cust:
+                row = jdf[jdf["Customer Name"] == sel_cust].iloc[0]
+                c1,c2,c3,c4 = st.columns(4)
+                c1.metric("زيارات", row["Visit Count"])
+                c2.metric("الحالة",  row["Latest Status"])
+                c3.metric("آخر زيارة", str(row.get("Days Since Last Visit","—")) + " يوم")
+                c4.metric("ثقة", f"{row.get('Latest Confidence',0):.1f}%")
+                st.code(row.get("Status History","—"), language=None)
+
+                cust_v = classified_df[classified_df["Customer Name"] == sel_cust].copy()
+                if "Visit Date" in cust_v.columns:
+                    cust_v["Visit Date"] = pd.to_datetime(cust_v["Visit Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+                vcols = ["Visit Date","Sales Rep Name","Display Status","Confidence Score","Visit Notes","Matched Keywords","Override Source"]
+                vcols = [c for c in vcols if c in cust_v.columns]
+                st.dataframe(cust_v[vcols].reset_index(drop=True), use_container_width=True)
+
+    # ── Tab 3: Manual Override ──
+    with tab3:
+        section("✏️ التصنيف اليدوي للزيارات غير المصنفة")
+
+        unclass_count = int((classified_df["Display Status"] == "Unclassified").sum())
+        manual_count  = int((classified_df.get("Override Source","") == "Manual").sum()) if "Override Source" in classified_df.columns else 0
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric("غير مصنف",        unclass_count)
+        m2.metric("تصنيف يدوي تم",   manual_count)
+        m3.metric("القيم المسموحة",   len(VALID_STATUSES))
+
+        st.markdown("---")
+
+        # ── Step 1: Export ──
+        st.markdown("#### 1️⃣ تصدير الزيارات الغير مصنفة")
+        if unclass_count == 0:
+            st.success("✅ لا توجد زيارات غير مصنفة!")
         else:
-            journey_filtered = journey_df
+            st.info(f"يوجد **{unclass_count:,}** زيارة غير مصنفة — حمّل الملف وأضف التصنيف في عمود **Manual Status**")
+            xlsx_unc = export_unclassified(classified_df)
+            st.download_button(
+                f"⬇️ تحميل الزيارات الغير مصنفة ({unclass_count:,} زيارة)",
+                data=xlsx_unc,
+                file_name="Unclassified_Visits.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
 
-        display_journey_cols = [
-            "Customer Name", "Latest Status", "Latest Confidence",
-            "Visit Count", "First Visit Date", "Last Visit Date",
-            "Days Since Last Visit", "Governorate", "Sales Rep Name",
-        ]
-        show_j = [c for c in display_journey_cols if c in journey_filtered.columns]
+        st.markdown("---")
 
-        st.dataframe(
-            journey_filtered[show_j].reset_index(drop=True),
-            use_container_width=True, height=420,
+        # ── Step 2: Import ──
+        st.markdown("#### 2️⃣ رفع الملف بعد التصنيف اليدوي")
+        st.markdown(f"""
+        **القيم المسموح بها في عمود Manual Status:**
+        {' | '.join(['`'+s+'`' for s in VALID_STATUSES])}
+        """)
+
+        override_file = st.file_uploader(
+            "ارفع الملف المعدّل هنا",
+            type=["xlsx"],
+            key="override_uploader",
         )
 
-        # Detail drilldown
-        if not journey_filtered.empty:
-            st.markdown("---")
-            st.subheader("Customer Detail View")
-            selected_customer = st.selectbox(
-                "Select a customer to view full journey",
-                journey_filtered["Customer Name"].tolist(),
-                key="journey_detail_select",
-            )
-            if selected_customer:
-                row = journey_filtered[journey_filtered["Customer Name"] == selected_customer].iloc[0]
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Visit Count",       row["Visit Count"])
-                c2.metric("Latest Status",      row["Latest Status"])
-                c3.metric("Days Since Last Visit", row.get("Days Since Last Visit", "—"))
-                c4.metric("Confidence",         f"{row.get('Latest Confidence', 0):.1f}%")
+        if override_file is not None:
+            st.warning("⚠️ سيتم تحديث التصنيف وإعادة حساب كل التقارير — هل أنت متأكد؟")
+            col_confirm, col_cancel = st.columns(2)
 
-                st.markdown("**Full Status Journey:**")
-                st.code(row.get("Status History", "—"), language=None)
-
-                # Show all visits for this customer
-                cust_visits = classified_df[classified_df["Customer Name"] == selected_customer].copy()
-                cust_visits["Visit Date"] = pd.to_datetime(cust_visits["Visit Date"], errors="coerce").dt.strftime("%Y-%m-%d")
-                visit_show_cols = [
-                    "Visit Date", "Sales Rep Name", "Display Status",
-                    "Confidence Score", "Visit Notes", "Matched Keywords",
-                ]
-                st.dataframe(
-                    cust_visits[[c for c in visit_show_cols if c in cust_visits.columns]].reset_index(drop=True),
-                    use_container_width=True,
-                )
-
-    # ─── Tab 3: Keyword Rules ───
-    with tab3:
-        section("Keyword Rules & تصدير بيانات الزيارات حسب الحالة")
-
-        t3_col1, t3_col2 = st.columns([1, 1])
-
-        # ── جدول الكلمات المفتاحية ──
-        with t3_col1:
-            st.markdown("#### 📋 جدول الكلمات المفتاحية")
-            rules_df = get_rules_dataframe()
-
-            # فلتر الحالة في جدول الكلمات
-            all_statuses_rules = ["الكل"] + sorted(rules_df["Status"].unique().tolist())
-            sel_rule_status = st.selectbox(
-                "فلتر حسب الحالة",
-                all_statuses_rules,
-                key="rules_status_filter"
-            )
-            if sel_rule_status != "الكل":
-                rules_filtered = rules_df[rules_df["Status"] == sel_rule_status]
-            else:
-                rules_filtered = rules_df
-
-            st.dataframe(
-                rules_filtered.reset_index(drop=True),
-                use_container_width=True,
-                height=400,
-                hide_index=True
-            )
-
-            st.markdown("""
-            | Score | Category |
-            |-------|----------|
-            | +100  | Current Customer |
-            | +80   | New Customer |
-            | +60   | Potential Customer |
-            | +40   | Target Customer |
-            | +20   | Former Customer |
-            | −100  | Not Interested |
-            """)
-
-        # ── تصدير بيانات الزيارات حسب الحالة ──
-        with t3_col2:
-            st.markdown("#### 📤 استخراج بيانات الزيارات حسب الحالة")
-
-            # قائمة الحالات المتاحة من البيانات الفعلية
-            available_statuses = sorted(
-                classified_df["Display Status"].dropna().unique().tolist()
-            )
-
-            sel_export_status = st.selectbox(
-                "اختار الحالة اللي عايز تشتغل عليها",
-                options=["الكل"] + available_statuses,
-                key="export_status_select"
-            )
-
-            # فلتر إضافي للمندوب
-            reps_list_t3 = ["الكل"] + sorted(
-                classified_df["Sales Rep Name"].dropna().unique().tolist()
-            )
-            sel_rep_t3 = st.selectbox(
-                "فلتر حسب المندوب (اختياري)",
-                options=reps_list_t3,
-                key="export_rep_select"
-            )
-
-            # فلتر إضافي للمحافظة
-            gov_list_t3 = ["الكل"] + sorted(
-                classified_df["Governorate"].dropna().unique().tolist()
-            )
-            sel_gov_t3 = st.selectbox(
-                "فلتر حسب المحافظة (اختياري)",
-                options=gov_list_t3,
-                key="export_gov_select"
-            )
-
-            # ── تطبيق الفلاتر ──
-            export_df = classified_df.copy()
-
-            if sel_export_status != "الكل":
-                export_df = export_df[
-                    export_df["Display Status"] == sel_export_status
-                ]
-            if sel_rep_t3 != "الكل":
-                export_df = export_df[
-                    export_df["Sales Rep Name"] == sel_rep_t3
-                ]
-            if sel_gov_t3 != "الكل":
-                export_df = export_df[
-                    export_df["Governorate"] == sel_gov_t3
-                ]
-
-            # ── إحصائيات سريعة ──
-            st.markdown("<br>", unsafe_allow_html=True)
-
-            m1, m2, m3 = st.columns(3)
-            m1.metric("إجمالي الزيارات",  f"{len(export_df):,}")
-            m2.metric("عدد العملاء",       f"{export_df['Customer Name'].nunique():,}")
-            m3.metric("عدد المندوبين",     f"{export_df['Sales Rep Name'].nunique():,}")
-
-            st.markdown("<br>", unsafe_allow_html=True)
-
-            # ── معاينة البيانات ──
-            preview_cols = [
-                "Visit Date", "Customer Name", "Sales Rep Name",
-                "Display Status", "Governorate", "District",
-                "Visit Notes", "Matched Keywords", "Classification Reason",
-            ]
-            show_preview = [c for c in preview_cols if c in export_df.columns]
-
-            with st.expander("👁️ معاينة البيانات قبل التحميل"):
-                preview_data = export_df[show_preview].copy()
-                if "Visit Date" in preview_data.columns:
-                    preview_data["Visit Date"] = pd.to_datetime(
-                        preview_data["Visit Date"], errors="coerce"
-                    ).dt.strftime("%Y-%m-%d")
-                st.dataframe(
-                    preview_data.reset_index(drop=True),
-                    use_container_width=True,
-                    height=300,
-                )
-
-            # ── تحميل Excel ──
-            if not export_df.empty:
-                # تجهيز ملف الاستخراج
-                export_out = export_df[show_preview].copy()
-                if "Visit Date" in export_out.columns:
-                    export_out["Visit Date"] = pd.to_datetime(
-                        export_out["Visit Date"], errors="coerce"
-                    ).dt.strftime("%Y-%m-%d")
-
-                # إضافة عمود عدد زيارات العميل
-                vc = (
-                    classified_df.groupby("Customer Name")
-                    .size()
-                    .reset_index(name="عدد الزيارات")
-                )
-                export_out = export_out.merge(vc, on="Customer Name", how="left")
-
-                # تسمية الأعمدة بالعربي
-                export_out = export_out.rename(columns={
-                    "Visit Date":            "تاريخ الزيارة",
-                    "Customer Name":         "اسم العميل",
-                    "Sales Rep Name":        "المندوب",
-                    "Display Status":        "الحالة",
-                    "Governorate":           "المحافظة",
-                    "District":              "المنطقة",
-                    "Visit Notes":           "ملاحظات الزيارة",
-                    "Matched Keywords":      "الكلمات المفتاحية",
-                    "Classification Reason": "سبب التصنيف",
-                })
-
-                import io
-                output_t3 = io.BytesIO()
-                with pd.ExcelWriter(output_t3, engine="openpyxl") as writer:
-                    export_out.to_excel(
-                        writer,
-                        index=False,
-                        sheet_name=sel_export_status[:30] if sel_export_status != "الكل" else "كل الحالات"
+            with col_confirm:
+                if st.button("✅ تأكيد وتطبيق التصنيف", use_container_width=True):
+                    updated_df, count_changed, errors = import_overrides(
+                        override_file, classified_df
                     )
 
-                # اسم الملف
-                file_label = sel_export_status.replace(" ", "_") if sel_export_status != "الكل" else "All_Statuses"
-                rep_label  = f"_{sel_rep_t3}"  if sel_rep_t3  != "الكل" else ""
-                gov_label  = f"_{sel_gov_t3}"  if sel_gov_t3  != "الكل" else ""
+                    if errors:
+                        for err in errors:
+                            st.warning(err)
 
+                    if count_changed > 0:
+                        # Update session state
+                        st.session_state["classified_df"] = updated_df
+
+                        with st.spinner("🔄 إعادة بناء رحلة العميل..."):
+                            new_journey = build_customer_journey(updated_df)
+                            st.session_state["journey_df"] = new_journey
+
+                        # Rebuild all dashboards
+                        rebuild_dashboards()
+
+                        # Save to disk
+                        with st.spinner("💾 حفظ التحديثات..."):
+                            save_session(
+                                classified_df=updated_df,
+                                journey_df=st.session_state["journey_df"],
+                                rep_kpi_df=st.session_state["rep_kpi_df"],
+                                file_name=st.session_state.get("file_name",""),
+                            )
+
+                        st.success(f"✅ تم تحديث **{count_changed:,}** زيارة وحفظ البيانات — كل الصفحات تحدّثت!")
+                        st.balloons()
+                        st.rerun()
+                    else:
+                        st.error("❌ لم يتم تطبيق أي تغيير — تحقق من الملف")
+
+            with col_cancel:
+                if st.button("❌ إلغاء", use_container_width=True):
+                    st.rerun()
+
+        # ── Overrides history ──
+        st.markdown("---")
+        st.markdown("#### 📋 سجل التصنيفات اليدوية")
+        if "Override Source" in classified_df.columns:
+            manual_df = classified_df[classified_df["Override Source"] == "Manual"]
+            if not manual_df.empty:
+                show_o = ["Visit Date","Customer Name","Sales Rep Name","Display Status","Governorate","Visit Notes"]
+                show_o = [c for c in show_o if c in manual_df.columns]
+                if "Visit Date" in manual_df.columns:
+                    manual_df = manual_df.copy()
+                    manual_df["Visit Date"] = pd.to_datetime(manual_df["Visit Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+                st.dataframe(manual_df[show_o].reset_index(drop=True),
+                             use_container_width=True, height=300)
+
+                if st.button("🗑️ حذف كل التصنيفات اليدوية", type="secondary"):
+                    ok, msg = clear_overrides()
+                    if ok:
+                        st.success(msg + " — يرجى إعادة تحميل البيانات")
+                    else:
+                        st.error(msg)
+            else:
+                st.info("لا توجد تصنيفات يدوية حتى الآن")
+        else:
+            st.info("لا توجد تصنيفات يدوية حتى الآن")
+
+    # ── Tab 4: Keyword Rules ──
+    with tab4:
+        section("قواعد الكلمات المفتاحية")
+        t3c1, t3c2 = st.columns([1,1])
+
+        with t3c1:
+            rules_df = get_rules_dataframe()
+            status_filter = ["الكل"] + sorted(rules_df["Status"].unique().tolist())
+            sel_rs = st.selectbox("فلتر الحالة", status_filter, key="rules_filter")
+            if sel_rs != "الكل":
+                rules_df = rules_df[rules_df["Status"] == sel_rs]
+            st.dataframe(rules_df.reset_index(drop=True), use_container_width=True,
+                         height=400, hide_index=True)
+
+        with t3c2:
+            st.markdown("#### 📤 تصدير حسب الحالة")
+            avail_statuses = ["الكل"] + sorted(classified_df["Display Status"].dropna().unique().tolist())
+            sel_exp_status = st.selectbox("الحالة", avail_statuses, key="exp_status")
+            sel_exp_rep    = st.selectbox("المندوب", ["الكل"]+sorted(classified_df["Sales Rep Name"].dropna().unique().tolist()), key="exp_rep")
+            sel_exp_gov    = st.selectbox("المحافظة", ["الكل"]+sorted(classified_df["Governorate"].dropna().unique().tolist()), key="exp_gov")
+
+            exp_df = classified_df.copy()
+            if sel_exp_status != "الكل": exp_df = exp_df[exp_df["Display Status"] == sel_exp_status]
+            if sel_exp_rep    != "الكل": exp_df = exp_df[exp_df["Sales Rep Name"] == sel_exp_rep]
+            if sel_exp_gov    != "الكل": exp_df = exp_df[exp_df["Governorate"] == sel_exp_gov]
+
+            m1,m2,m3 = st.columns(3)
+            m1.metric("زيارات",  f"{len(exp_df):,}")
+            m2.metric("عملاء",   f"{exp_df['Customer Name'].nunique():,}")
+            m3.metric("مندوبين", f"{exp_df['Sales Rep Name'].nunique():,}")
+
+            if not exp_df.empty:
+                exp_cols = ["Visit Date","Customer Name","Sales Rep Name","Display Status",
+                            "Governorate","District","Visit Notes","Matched Keywords","Classification Reason"]
+                exp_cols = [c for c in exp_cols if c in exp_df.columns]
+                exp_out  = exp_df[exp_cols].copy()
+                if "Visit Date" in exp_out.columns:
+                    exp_out["Visit Date"] = pd.to_datetime(exp_out["Visit Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+
+                out2 = io.BytesIO()
+                with pd.ExcelWriter(out2, engine="openpyxl") as w:
+                    exp_out.to_excel(w, index=False)
                 st.download_button(
-                    label=f"⬇️ تحميل بيانات ({sel_export_status}) — {len(export_out):,} زيارة",
-                    data=output_t3.getvalue(),
-                    file_name=f"Visits_{file_label}{rep_label}{gov_label}.xlsx",
+                    f"⬇️ تحميل ({sel_exp_status}) — {len(exp_out):,} زيارة",
+                    data=out2.getvalue(),
+                    file_name=f"Visits_{sel_exp_status.replace(' ','_')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
                 )
-            else:
-                st.warning("⚠️ مفيش بيانات بالفلاتر دي")
 
-    # ─── Tab 4: Export ───
-    with tab4:
-        section("Export Classification Results")
-        st.markdown("Download the full classification table as a styled Excel file.")
-
-        if st.button("📥 Generate Classification Export", use_container_width=False):
-            xlsx_bytes = export_classification_results(classified_df)
-            st.download_button(
-                label="⬇️ Download Classification Results.xlsx",
-                data=xlsx_bytes,
-                file_name="Classification_Results.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-            )
+    # ── Tab 5: Export ──
+    with tab5:
+        section("تصدير نتائج التصنيف")
+        xlsx_cls = export_classification_results(classified_df)
+        st.download_button("⬇️ تحميل Classification Results.xlsx",
+                           data=xlsx_cls, file_name="Classification_Results.xlsx",
+                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                           use_container_width=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -870,104 +654,74 @@ elif page == "🧠 Customer Classification":
 # ═══════════════════════════════════════════════════════════════════
 
 elif page == "👥 Customer Analytics":
-    page_banner("👥", "Customer Analytics", "Deep-dive into customer segments and visit patterns")
+    page_banner("👥", "تحليلات العملاء", "تحليل شرائح العملاء وأنماط الزيارات")
 
     if not st.session_state["processing_done"]:
-        no_data_warning()
-        st.stop()
+        no_data_warning(); st.stop()
 
-    analytics = st.session_state["analytics_data"]
+    analytics  = st.session_state["analytics_data"]
     journey_df = st.session_state["journey_df"]
-
-    # ── KPI Row ──
     kpis = analytics["kpi"]
-    kpi_row({k: v for k, v in list(kpis.items())[:4]}, cols_per_row=4)
-    kpi_row({k: v for k, v in list(kpis.items())[4:]}, cols_per_row=5)
 
+    kpi_row({k:v for k,v in list(kpis.items())[:4]}, cols_per_row=4)
+    kpi_row({k:v for k,v in list(kpis.items())[4:]}, cols_per_row=5)
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Charts row ──
-    ch1, ch2 = st.columns([1, 1])
+    ch1, ch2 = st.columns(2)
     with ch1:
-        if analytics.get("fig_status_pie"):
-            st.plotly_chart(analytics["fig_status_pie"], use_container_width=True)
+        if analytics.get("fig_status_pie"): st.plotly_chart(analytics["fig_status_pie"], use_container_width=True)
     with ch2:
-        if analytics.get("fig_gov"):
-            st.plotly_chart(analytics["fig_gov"], use_container_width=True)
+        if analytics.get("fig_gov"):        st.plotly_chart(analytics["fig_gov"],        use_container_width=True)
 
-    # ── Top 20 Most Visited ──
-    section("Top 20 Most Visited Customers")
+    section("أكثر 20 عميلاً زيارةً")
     top20 = analytics.get("top_20", pd.DataFrame())
     if not top20.empty:
         st.dataframe(top20, use_container_width=True, height=380)
-
-        # Bar chart
         fig_top = go.Figure(go.Bar(
-            y=top20["Customer Name"],
-            x=top20["Visit Count"],
-            orientation="h",
-            marker_color="#2E75B6",
-            text=top20["Visit Count"],
-            textposition="outside",
+            y=top20["Customer Name"], x=top20["Visit Count"],
+            orientation="h", marker_color="#2E75B6",
+            text=top20["Visit Count"], textposition="outside",
         ))
-        fig_top.update_layout(
-            title="Top 20 Most Visited Customers",
-            template="plotly_white",
-            paper_bgcolor="#F5F7FA",
-            yaxis=dict(autorange="reversed"),
-            margin=dict(l=20, r=40, t=50, b=20),
-            height=520,
-        )
+        fig_top.update_layout(title="Top 20", template="plotly_white",
+                              paper_bgcolor="#F5F7FA", yaxis=dict(autorange="reversed"),
+                              margin=dict(l=20,r=40,t=50,b=20), height=520)
         st.plotly_chart(fig_top, use_container_width=True)
 
-    # ── Not Visited Segments ──
-    section("Customers Not Visited")
-
-    nv_tabs = st.tabs(["30 Days", "60 Days", "90 Days", "180 Days"])
-    for tab_obj, days, key in zip(
-        nv_tabs,
-        [30, 60, 90, 180],
-        ["not_visited_30", "not_visited_60", "not_visited_90", "not_visited_180"],
-    ):
+    section("العملاء الذين لم تتم زيارتهم")
+    nv_tabs = st.tabs(["30 يوم","60 يوم","90 يوم","180 يوم"])
+    for tab_obj, days, key in zip(nv_tabs,[30,60,90,180],
+                                   ["not_visited_30","not_visited_60","not_visited_90","not_visited_180"]):
         with tab_obj:
             df_nv = analytics.get(key, pd.DataFrame())
             if df_nv.empty:
-                st.info(f"No customers with {days}+ days since last visit.")
+                st.info(f"لا يوجد عملاء لم يُزاروا منذ {days} يوماً")
             else:
-                st.warning(f"⚠️ {len(df_nv)} customers not visited for {days}+ days")
+                st.warning(f"⚠️ {len(df_nv)} عميل لم يُزار منذ {days}+ يوم")
                 st.dataframe(df_nv, use_container_width=True, height=320)
                 xlsx_nv = export_followup_customers(journey_df, days_threshold=days)
-                st.download_button(
-                    f"⬇️ Export {days}-Day Follow-up List",
-                    data=xlsx_nv,
-                    file_name=f"Followup_{days}_Days.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
+                st.download_button(f"⬇️ تصدير قائمة {days} يوم",
+                                   data=xlsx_nv, file_name=f"Followup_{days}_Days.xlsx",
+                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-    # ── District Distribution ──
-    section("Governorate & District Breakdown")
+    section("توزيع المحافظات والمناطق")
     bd1, bd2 = st.columns(2)
     with bd1:
         gov_df = analytics.get("gov_dist_df", pd.DataFrame())
         if not gov_df.empty:
-            st.markdown("**Customers by Governorate**")
+            st.markdown("**عملاء حسب المحافظة**")
             st.dataframe(gov_df, use_container_width=True, hide_index=True)
     with bd2:
         dist_df = analytics.get("district_dist_df", pd.DataFrame())
         if not dist_df.empty:
-            st.markdown("**Customers by District (Top 20)**")
+            st.markdown("**عملاء حسب المنطقة (أعلى 20)**")
             st.dataframe(dist_df.head(20), use_container_width=True, hide_index=True)
 
-    # ── Export ──
-    section("Export Customer Summary")
+    section("تصدير")
     journey_clean = journey_df.drop(columns=["_journey"], errors="ignore")
-    xlsx_cust = export_customer_summary(journey_clean)
-    st.download_button(
-        "⬇️ Download Customer Summary.xlsx",
-        data=xlsx_cust,
-        file_name="Customer_Summary.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+    st.download_button("⬇️ Customer Summary.xlsx",
+                       data=export_customer_summary(journey_clean),
+                       file_name="Customer_Summary.xlsx",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -975,234 +729,86 @@ elif page == "👥 Customer Analytics":
 # ═══════════════════════════════════════════════════════════════════
 
 elif page == "🏆 Sales Rep Performance":
-    page_banner("🏆", "Sales Rep Performance", "Individual and comparative rep KPIs, rankings and trends")
+    page_banner("🏆", "أداء المندوبين", "KPIs وتحليل مقارن وتريند شهري")
 
     if not st.session_state["processing_done"]:
-        no_data_warning()
-        st.stop()
+        no_data_warning(); st.stop()
 
     rep_kpi_df  = st.session_state["rep_kpi_df"]
     rep_figures = st.session_state["rep_figures"]
     classified  = st.session_state["classified_df"]
 
     if rep_kpi_df is None or rep_kpi_df.empty:
-        st.warning("No sales rep data available.")
-        st.stop()
+        st.warning("لا توجد بيانات مندوبين"); st.stop()
 
-    # ── Team summary row ──
     kpi_row({
-        "Total Reps":            len(rep_kpi_df),
-        "Total Visits":          int(rep_kpi_df["Total Visits"].sum()),
-        "Total Unique Customers":int(rep_kpi_df["Unique Customers"].sum()),
-        "Avg Conversion Rate":   f"{rep_kpi_df['Conversion Rate (%)'].mean():.1f}%",
+        "عدد المندوبين":       len(rep_kpi_df),
+        "إجمالي الزيارات":    int(rep_kpi_df["Total Visits"].sum()),
+        "إجمالي العملاء":     int(rep_kpi_df["Unique Customers"].sum()),
+        "متوسط التحويل":      f"{rep_kpi_df['Conversion Rate (%)'].mean():.1f}%",
     })
-
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── KPI Table ──
-    section("Sales Rep KPI Table")
+    section("جدول KPIs")
+    st.info(f"🥇 أفضل مندوب: **{rep_kpi_df.iloc[0]['Sales Rep Name']}** — {fmt_number(rep_kpi_df.iloc[0]['Total Visits'])} زيارة")
+    st.dataframe(rep_kpi_df.reset_index(drop=True), use_container_width=True, height=420)
 
-    # Highlight best performer
-    st.info(f"🥇 Top performer: **{rep_kpi_df.iloc[0]['Sales Rep Name']}** "
-            f"with {fmt_number(rep_kpi_df.iloc[0]['Total Visits'])} visits")
-
-    st.dataframe(
-        rep_kpi_df.reset_index(drop=True),
-        use_container_width=True,
-        height=420,
-    )
-
-    # ── Charts ──
-    section("Performance Charts")
-    for chart_title, fig in rep_figures:
+    section("المخططات")
+    for _, fig in rep_figures:
         st.plotly_chart(fig, use_container_width=True)
 
-    # ── Monthly trend per rep ──
-    section("Monthly Visits per Sales Rep")
-    if "Visit Date" in classified.columns and "Sales Rep Name" in classified.columns:
+    # Monthly trend with filters
+    section("الزيارات الشهرية لكل مندوب")
+    if "Visit Date" in classified.columns:
         df_m = classified.copy()
         df_m["Visit Date"] = pd.to_datetime(df_m["Visit Date"], errors="coerce")
 
-        # ── فلاتر ──
-        fl1, fl2, fl3, fl4 = st.columns(4)
-
-        # فلتر السنة
-        years_avail = sorted(df_m["Visit Date"].dt.year.dropna().unique().astype(int).tolist())
-        with fl1:
-            sel_years = st.multiselect(
-                "📅 السنة",
-                options=years_avail,
-                default=years_avail,
-                key="rep_trend_year"
-            )
-
-        # فلتر الشهر
-        months_map = {
-            1:"يناير", 2:"فبراير", 3:"مارس", 4:"أبريل",
-            5:"مايو", 6:"يونيو", 7:"يوليو", 8:"أغسطس",
-            9:"سبتمبر", 10:"أكتوبر", 11:"نوفمبر", 12:"ديسمبر"
-        }
+        fl1,fl2,fl3,fl4 = st.columns(4)
+        years_avail  = sorted(df_m["Visit Date"].dt.year.dropna().unique().astype(int).tolist())
+        months_map   = {1:"يناير",2:"فبراير",3:"مارس",4:"أبريل",5:"مايو",6:"يونيو",
+                        7:"يوليو",8:"أغسطس",9:"سبتمبر",10:"أكتوبر",11:"نوفمبر",12:"ديسمبر"}
         months_avail = sorted(df_m["Visit Date"].dt.month.dropna().unique().astype(int).tolist())
-        with fl2:
-            sel_months = st.multiselect(
-                "📅 الشهر",
-                options=months_avail,
-                format_func=lambda x: f"{months_map[x]} ({x})",
-                default=months_avail,
-                key="rep_trend_month"
-            )
+        days_avail   = sorted(df_m["Visit Date"].dt.day.dropna().unique().astype(int).tolist())
+        reps_avail   = sorted(df_m["Sales Rep Name"].dropna().unique().tolist())
 
-        # فلتر اليوم
-        days_avail = sorted(df_m["Visit Date"].dt.day.dropna().unique().astype(int).tolist())
-        with fl3:
-            sel_days = st.multiselect(
-                "📅 اليوم",
-                options=days_avail,
-                default=days_avail,
-                key="rep_trend_day"
-            )
+        with fl1: sel_y = st.multiselect("السنة",    years_avail,  default=years_avail,  key="rt_y")
+        with fl2: sel_m = st.multiselect("الشهر",    months_avail, default=months_avail,
+                                          format_func=lambda x: f"{months_map[x]} ({x})", key="rt_m")
+        with fl3: sel_d = st.multiselect("اليوم",    days_avail,   default=days_avail,   key="rt_d")
+        with fl4: sel_r = st.multiselect("المندوب",  reps_avail,   default=reps_avail,   key="rt_r")
 
-        # فلتر المندوب
-        reps_avail = sorted(df_m["Sales Rep Name"].dropna().unique().tolist())
-        with fl4:
-            sel_reps_trend = st.multiselect(
-                "👤 المندوب",
-                options=reps_avail,
-                default=reps_avail,
-                key="rep_trend_rep"
-            )
+        mask = (df_m["Visit Date"].dt.year.isin(sel_y)  &
+                df_m["Visit Date"].dt.month.isin(sel_m) &
+                df_m["Visit Date"].dt.day.isin(sel_d)   &
+                df_m["Sales Rep Name"].isin(sel_r))
+        df_mf = df_m[mask].copy()
 
-        # ── تطبيق الفلاتر ──
-        mask = (
-            df_m["Visit Date"].dt.year.isin(sel_years) &
-            df_m["Visit Date"].dt.month.isin(sel_months) &
-            df_m["Visit Date"].dt.day.isin(sel_days) &
-            df_m["Sales Rep Name"].isin(sel_reps_trend)
-        )
-        df_m_filtered = df_m[mask].copy()
-
-        if df_m_filtered.empty:
-            st.warning("⚠️ مفيش بيانات بالفلاتر دي — جرب تغير الاختيارات")
+        if df_mf.empty:
+            st.warning("لا توجد بيانات بهذه الفلاتر")
         else:
-            # ── عرض إجمالي بعد الفلترة ──
-            st.info(
-                f"📊 إجمالي الزيارات: **{len(df_m_filtered):,}** | "
-                f"عدد المندوبين: **{df_m_filtered['Sales Rep Name'].nunique()}** | "
-                f"عدد العملاء: **{df_m_filtered['Customer Name'].nunique()}**"
-            )
+            st.info(f"📊 زيارات: **{len(df_mf):,}** | عملاء: **{df_mf['Customer Name'].nunique():,}**")
+            df_mf["Month_Period"] = df_mf["Visit Date"].dt.to_period("M").astype(str)
+            monthly_rep = df_mf.groupby(["Month_Period","Sales Rep Name"]).size().reset_index(name="Visits")
 
-            # ── تجميع البيانات ──
-            df_m_filtered["Month_Period"] = df_m_filtered["Visit Date"].dt.to_period("M").astype(str)
-            monthly_rep = (
-                df_m_filtered.groupby(["Month_Period", "Sales Rep Name"])
-                .size().reset_index(name="Visits")
-            )
+            fig_ml = px.line(monthly_rep, x="Month_Period", y="Visits", color="Sales Rep Name",
+                             markers=True, template="plotly_white",
+                             title="الزيارات الشهرية لكل مندوب", text="Visits")
+            fig_ml.update_traces(textposition="top center")
+            fig_ml.update_layout(paper_bgcolor="#F5F7FA", legend=dict(orientation="h",y=-0.3),
+                                 xaxis_tickangle=-45, margin=dict(l=20,r=20,t=50,b=100))
+            st.plotly_chart(fig_ml, use_container_width=True)
 
-            import plotly.express as px
-
-            # ── Chart 1: Line Chart ──
-            fig_monthly = px.line(
-                monthly_rep,
-                x="Month_Period",
-                y="Visits",
-                color="Sales Rep Name",
-                markers=True,
-                template="plotly_white",
-                title="Monthly Visits per Sales Rep",
-                text="Visits",
-            )
-            fig_monthly.update_traces(textposition="top center")
-            fig_monthly.update_layout(
-                paper_bgcolor="#F5F7FA",
-                legend=dict(orientation="h", y=-0.3),
-                xaxis_tickangle=-45,
-                margin=dict(l=20, r=20, t=50, b=100),
-            )
-            st.plotly_chart(fig_monthly, use_container_width=True)
-
-            # ── Chart 2: Bar Chart مقارنة ──
-            rep_totals = (
-                df_m_filtered.groupby("Sales Rep Name")
-                .size().reset_index(name="Total Visits")
-                .sort_values("Total Visits", ascending=False)
-            )
-            fig_bar = px.bar(
-                rep_totals,
-                x="Sales Rep Name",
-                y="Total Visits",
-                color="Total Visits",
-                color_continuous_scale=[[0, "#BDD7EE"], [1, "#1F4E79"]],
-                template="plotly_white",
-                title="إجمالي الزيارات لكل مندوب (بعد الفلترة)",
-                text="Total Visits",
-            )
-            fig_bar.update_traces(textposition="outside")
-            fig_bar.update_layout(
-                paper_bgcolor="#F5F7FA",
-                showlegend=False,
-                xaxis_tickangle=-35,
-                margin=dict(l=20, r=20, t=50, b=80),
-            )
-            st.plotly_chart(fig_bar, use_container_width=True)
-
-            # ── جدول تفصيلي ──
-            with st.expander("📋 عرض الجدول التفصيلي"):
-                pivot = monthly_rep.pivot_table(
-                    index="Month_Period",
-                    columns="Sales Rep Name",
-                    values="Visits",
-                    fill_value=0
-                ).reset_index()
-                pivot["الإجمالي"] = pivot.iloc[:, 1:].sum(axis=1)
+            with st.expander("📋 الجدول التفصيلي"):
+                pivot = monthly_rep.pivot_table(index="Month_Period", columns="Sales Rep Name",
+                                                values="Visits", fill_value=0).reset_index()
+                pivot["الإجمالي"] = pivot.iloc[:,1:].sum(axis=1)
                 st.dataframe(pivot, use_container_width=True, hide_index=True)
 
-    # ── Individual rep drilldown ──
-    section("Individual Rep Drilldown")
-    rep_names = rep_kpi_df["Sales Rep Name"].tolist()
-    sel_rep2 = st.selectbox("Select Sales Rep", rep_names, key="rep_drill")
-    if sel_rep2:
-        row_r = rep_kpi_df[rep_kpi_df["Sales Rep Name"] == sel_rep2].iloc[0]
-        dr1, dr2, dr3, dr4, dr5 = st.columns(5)
-        dr1.metric("Total Visits",      fmt_number(row_r["Total Visits"]))
-        dr2.metric("Unique Customers",  fmt_number(row_r["Unique Customers"]))
-        dr3.metric("Current Customers", fmt_number(row_r["Current Customers"]))
-        dr4.metric("Conversion Rate",   f"{row_r['Conversion Rate (%)']:.1f}%")
-        dr5.metric("Visits/Month",      f"{row_r['Visits Per Month']:.1f}")
-
-        rep_visits = classified[classified["Sales Rep Name"] == sel_rep2]
-        if not rep_visits.empty:
-            cust_freq = (
-                rep_visits.groupby("Customer Name").size()
-                .reset_index(name="Visits")
-                .sort_values("Visits", ascending=False)
-                .head(15)
-            )
-            import plotly.express as px
-            fig_rep_cust = px.bar(
-                cust_freq, x="Visits", y="Customer Name",
-                orientation="h",
-                color_discrete_sequence=["#2E75B6"],
-                template="plotly_white",
-                title=f"Top 15 Customers for {sel_rep2}",
-                text="Visits",
-            )
-            fig_rep_cust.update_traces(textposition="outside")
-            fig_rep_cust.update_layout(
-                paper_bgcolor="#F5F7FA",
-                yaxis=dict(autorange="reversed"),
-                margin=dict(l=20, r=40, t=50, b=20),
-            )
-            st.plotly_chart(fig_rep_cust, use_container_width=True)
-
-    # ── Export ──
-    section("Export Sales Rep KPI")
-    xlsx_rep = export_sales_rep_kpi(rep_kpi_df)
-    st.download_button(
-        "⬇️ Download Sales Rep KPI.xlsx",
-        data=xlsx_rep,
-        file_name="Sales_Rep_KPI.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+    section("تصدير")
+    st.download_button("⬇️ Sales Rep KPI.xlsx",
+                       data=export_sales_rep_kpi(rep_kpi_df),
+                       file_name="Sales_Rep_KPI.xlsx",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1210,127 +816,222 @@ elif page == "🏆 Sales Rep Performance":
 # ═══════════════════════════════════════════════════════════════════
 
 elif page == "🏢 Executive Dashboard":
-    page_banner("🏢", "Executive Dashboard", "High-level KPIs, trends and strategic insights")
+    page_banner("🏢", "لوحة التحكم التنفيذية", "KPIs وتريند ورؤية استراتيجية")
 
     if not st.session_state["processing_done"]:
-        no_data_warning()
-        st.stop()
+        no_data_warning(); st.stop()
 
     exec_data  = st.session_state["exec_data"]
     journey_df = st.session_state["journey_df"]
     rep_kpi_df = st.session_state["rep_kpi_df"]
-
-    # ── KPI cards (row 1 — 4 cols) ──
     kpis = exec_data.get("kpis", {})
     kpi_items = list(kpis.items())
 
-    c1, c2, c3, c4 = st.columns(4)
-    for col, (label, val) in zip([c1, c2, c3, c4], kpi_items[:4]):
-        with col:
-            st.metric(label, fmt_number(val))
-
-    # ── KPI cards (row 2 — 4 cols) ──
+    c1,c2,c3,c4 = st.columns(4)
+    for col,(label,val) in zip([c1,c2,c3,c4], kpi_items[:4]):
+        with col: st.metric(label, fmt_number(val))
     if len(kpi_items) > 4:
-        c5, c6, c7, c8 = st.columns(4)
-        for col, (label, val) in zip([c5, c6, c7, c8], kpi_items[4:8]):
-            with col:
-                st.metric(label, fmt_number(val))
+        c5,c6,c7,c8 = st.columns(4)
+        for col,(label,val) in zip([c5,c6,c7,c8], kpi_items[4:8]):
+            with col: st.metric(label, fmt_number(val))
 
     st.markdown("<br>", unsafe_allow_html=True)
+    section("تريند الزيارات الشهري")
+    if exec_data.get("fig_trend"): st.plotly_chart(exec_data["fig_trend"], use_container_width=True)
 
-    # ── Monthly trend (full width) ──
-    section("Monthly Visit Trend")
-    fig_trend = exec_data.get("fig_trend")
-    if fig_trend:
-        st.plotly_chart(fig_trend, use_container_width=True)
+    cl, cr = st.columns(2)
+    with cl:
+        section("توزيع حالات العملاء")
+        if exec_data.get("fig_status_pie"): st.plotly_chart(exec_data["fig_status_pie"], use_container_width=True)
+    with cr:
+        section("ترتيب المندوبين")
+        if exec_data.get("fig_rep_ranking"): st.plotly_chart(exec_data["fig_rep_ranking"], use_container_width=True)
 
-    # ── Two-column: pie + rep ranking ──
-    col_left, col_right = st.columns([1, 1])
-    with col_left:
-        section("Customer Status Distribution")
-        fig_pie = exec_data.get("fig_status_pie")
-        if fig_pie:
-            st.plotly_chart(fig_pie, use_container_width=True)
+    cg, cd = st.columns(2)
+    with cg:
+        section("توزيع المحافظات")
+        if exec_data.get("fig_gov"): st.plotly_chart(exec_data["fig_gov"], use_container_width=True)
+    with cd:
+        section("توزيع المناطق")
+        if exec_data.get("fig_district"): st.plotly_chart(exec_data["fig_district"], use_container_width=True)
 
-    with col_right:
-        section("Top Sales Reps Ranking")
-        fig_rank = exec_data.get("fig_rep_ranking")
-        if fig_rank:
-            st.plotly_chart(fig_rank, use_container_width=True)
+    section("أكثر 20 عميلاً زيارةً")
+    top_c = exec_data.get("top_customers_df", pd.DataFrame())
+    if not top_c.empty: st.dataframe(top_c, use_container_width=True, height=340)
 
-    # ── Governorate + District ──
-    col_g, col_d = st.columns([1, 1])
-    with col_g:
-        section("Governorate Distribution")
-        fig_gov = exec_data.get("fig_gov")
-        if fig_gov:
-            st.plotly_chart(fig_gov, use_container_width=True)
-        else:
-            gov_df = exec_data.get("gov_dist_df", pd.DataFrame())
-            if not gov_df.empty:
-                st.dataframe(gov_df, use_container_width=True, hide_index=True)
-
-    with col_d:
-        section("District Distribution")
-        fig_dist = exec_data.get("fig_district")
-        if fig_dist:
-            st.plotly_chart(fig_dist, use_container_width=True)
-
-    # ── Top Customers ──
-    section("Top 20 Most Visited Customers")
-    top_c_df = exec_data.get("top_customers_df", pd.DataFrame())
-    if not top_c_df.empty:
-        st.dataframe(top_c_df, use_container_width=True, height=340)
-
-    # ── Follow-up Required ──
-    section("⏰ Follow-up Required (Not Visited 30+ Days)")
+    section("⏰ عملاء يحتاجون متابعة (30+ يوم)")
     fu_df = exec_data.get("followup_df", pd.DataFrame())
     if not fu_df.empty:
-        st.error(f"🚨 {len(fu_df)} customers require follow-up (showing top 30)")
+        st.error(f"🚨 {len(fu_df)} عميل يحتاج متابعة")
         st.dataframe(fu_df, use_container_width=True, height=320)
 
-    # ── Export section ──
-    section("Export Executive Reports")
-    e1, e2 = st.columns(2)
-
+    section("تصدير")
+    e1,e2 = st.columns(2)
     with e1:
-        # Executive dashboard export
-        summary_dict = {
-            "kpis":         kpis,
-            "monthly":      exec_data.get("monthly_df", pd.DataFrame()),
-            "status_dist":  exec_data.get("status_dist_df", pd.DataFrame()),
-            "gov_dist":     exec_data.get("gov_dist_df", pd.DataFrame()),
-            "top_customers":exec_data.get("top_customers_df", pd.DataFrame()),
-        }
-        xlsx_exec = export_executive_dashboard(summary_dict)
-        st.download_button(
-            "⬇️ Executive Dashboard.xlsx",
-            data=xlsx_exec,
-            file_name="Executive_Dashboard.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-
+        summary_dict = {"kpis":kpis,"monthly":exec_data.get("monthly_df",pd.DataFrame()),
+                        "status_dist":exec_data.get("status_dist_df",pd.DataFrame()),
+                        "gov_dist":exec_data.get("gov_dist_df",pd.DataFrame()),
+                        "top_customers":exec_data.get("top_customers_df",pd.DataFrame())}
+        st.download_button("⬇️ Executive Dashboard.xlsx",
+                           data=export_executive_dashboard(summary_dict),
+                           file_name="Executive_Dashboard.xlsx",
+                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                           use_container_width=True)
     with e2:
-        # Customer summary export
-        journey_clean = journey_df.drop(columns=["_journey"], errors="ignore") if journey_df is not None else pd.DataFrame()
+        journey_clean = journey_df.drop(columns=["_journey"],errors="ignore")
         if not journey_clean.empty:
-            xlsx_cust = export_customer_summary(journey_clean)
-            st.download_button(
-                "⬇️ Customer Summary.xlsx",
-                data=xlsx_cust,
-                file_name="Customer_Summary.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-            )
+            st.download_button("⬇️ Customer Summary.xlsx",
+                               data=export_customer_summary(journey_clean),
+                               file_name="Customer_Summary.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               use_container_width=True)
 
-    # Sales rep KPI export
-    if rep_kpi_df is not None and not rep_kpi_df.empty:
-        xlsx_rep = export_sales_rep_kpi(rep_kpi_df)
-        st.download_button(
-            "⬇️ Sales Rep KPI.xlsx",
-            data=xlsx_rep,
-            file_name="Sales_Rep_KPI.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
+
+# ═══════════════════════════════════════════════════════════════════
+# PAGE 6 — SETTINGS
+# ═══════════════════════════════════════════════════════════════════
+
+elif page == "⚙️ Settings":
+    page_banner("⚙️", "الإعدادات", "إعداد مسار البيانات المشتركة وإدارة التخزين")
+
+    status = storage_status()
+
+    # ── Storage Path ──
+    section("📁 مسار البيانات المشتركة")
+    st.markdown("""
+    ضع مسار الـ Shared Folder هنا — كل المستخدمين على الشبكة سيرون نفس البيانات.
+    """)
+
+    current_path = status["data_dir"]
+    new_path = st.text_input(
+        "مسار الفولدر المشترك",
+        value=current_path,
+        placeholder=r"مثال: \\SERVER\WDI_Analytics\data أو Z:\WDI_Data",
+        help="يجب أن يكون الفولدر قابلاً للكتابة من كل الأجهزة",
+    )
+
+    col_save, col_test = st.columns(2)
+    with col_save:
+        if st.button("💾 حفظ المسار", use_container_width=True):
+            ok, msg = set_data_dir(new_path)
+            if ok:
+                st.success(msg)
+                st.rerun()
+            else:
+                st.error(msg)
+    with col_test:
+        if st.button("🔍 اختبار الوصول", use_container_width=True):
+            from pathlib import Path
+            try:
+                p = Path(new_path)
+                if p.exists() and p.is_dir():
+                    test = p / ".test_access"
+                    test.write_text("ok"); test.unlink()
+                    st.success(f"✅ الفولدر موجود وقابل للكتابة")
+                else:
+                    st.error("❌ الفولدر غير موجود")
+            except Exception as e:
+                st.error(f"❌ لا يمكن الوصول: {e}")
+
+    # ── Storage Status ──
+    section("📊 حالة التخزين")
+    s1,s2,s3,s4 = st.columns(4)
+    s1.metric("الفولدر موجود",  "✅" if status["dir_exists"]   else "❌")
+    s2.metric("قابل للكتابة",  "✅" if status["dir_writable"] else "❌")
+    s3.metric("توجد بيانات",   "✅" if status["has_data"]     else "❌")
+    s4.metric("حجم البيانات",  f"{status['total_size_kb']} KB")
+
+    meta = status["metadata"]
+    if meta:
+        st.markdown(f"""
+        <div class="section-card">
+        <b>📋 آخر بيانات محفوظة</b><br><br>
+        📄 <b>الملف:</b> {meta.get('file_name','—')}<br>
+        🗒️ <b>الزيارات:</b> {fmt_number(meta.get('total_records',0))}<br>
+        👤 <b>العملاء:</b> {fmt_number(meta.get('unique_customers',0))}<br>
+        🧑‍💼 <b>المندوبون:</b> {fmt_number(meta.get('unique_reps',0))}<br>
+        ✏️ <b>تصنيفات يدوية:</b> {meta.get('override_count',0)}<br>
+        💾 <b>آخر حفظ:</b> {meta.get('last_saved','—')}
+        </div>""", unsafe_allow_html=True)
+
+    # ── Manual Save ──
+    section("💾 حفظ يدوي")
+    if st.session_state["processing_done"]:
+        if st.button("💾 حفظ البيانات الحالية الآن", use_container_width=True):
+            ok, msg = save_session(
+                classified_df=st.session_state["classified_df"],
+                journey_df=st.session_state["journey_df"],
+                rep_kpi_df=st.session_state["rep_kpi_df"],
+                file_name=st.session_state.get("file_name",""),
+            )
+            if ok: st.success(msg)
+            else:  st.error(msg)
+    else:
+        st.info("لا توجد بيانات محملة للحفظ")
+
+    # ── Load Saved ──
+    section("📂 تحميل البيانات المحفوظة")
+    if has_saved_data():
+        st.success("✅ توجد بيانات محفوظة جاهزة للتحميل")
+        if st.button("📂 تحميل البيانات المحفوظة", use_container_width=True):
+            ok, data = load_session()
+            if ok and data:
+                st.session_state["classified_df"] = data["classified_df"]
+                st.session_state["journey_df"]    = data["journey_df"]
+                st.session_state["rep_kpi_df"]    = data["rep_kpi_df"]
+                st.session_state["file_name"]     = data["metadata"].get("file_name","")
+                rebuild_dashboards()
+                st.session_state["processing_done"] = True
+                st.success("✅ تم تحميل البيانات بنجاح!")
+                st.rerun()
+            else:
+                st.error(f"❌ فشل التحميل: {data.get('error','خطأ غير معروف')}")
+    else:
+        st.info("لا توجد بيانات محفوظة بعد")
+
+    # ── Danger Zone ──
+    section("⚠️ منطقة الخطر")
+    with st.expander("🗑️ حذف البيانات"):
+        st.warning("هذه العمليات لا يمكن التراجع عنها!")
+        col_d1, col_d2 = st.columns(2)
+        with col_d1:
+            if st.button("🗑️ حذف التصنيفات اليدوية فقط", use_container_width=True, type="secondary"):
+                ok, msg = clear_overrides()
+                st.success(msg) if ok else st.error(msg)
+        with col_d2:
+            if st.button("🗑️ حذف كل البيانات المحفوظة", use_container_width=True, type="secondary"):
+                ok, msg = clear_all_data()
+                if ok:
+                    st.session_state["processing_done"] = False
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.error(msg)
+
+    # ── How to Share ──
+    section("📖 كيفية المشاركة على الشبكة")
+    st.markdown("""
+    **خطوات تشغيل البرنامج على أكثر من جهاز:**
+
+    **1. على الجهاز الرئيسي (اللي شغّل البرنامج):**
+    ```
+    python -m streamlit run app.py --server.address 0.0.0.0
+    ```
+
+    **2. اعرف IP الجهاز الرئيسي:**
+    ```
+    ipconfig  →  ابحث عن IPv4 Address  →  مثلاً: 192.168.1.5
+    ```
+
+    **3. على أي جهاز تاني في نفس الشبكة:**
+    ```
+    افتح المتصفح واكتب:  http://192.168.1.5:8501
+    ```
+
+    **4. مسار الـ Shared Folder:**
+    ```
+    ضع مسار فولدر مشترك يقدر يوصله كل الأجهزة
+    مثال Windows: \\\\SERVER\\WDI_Analytics\\data
+    مثال mapped drive: Z:\\WDI_Data
+    ```
+    """)
