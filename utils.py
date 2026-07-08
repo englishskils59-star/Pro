@@ -221,6 +221,18 @@ def clean_customer_name(name: str) -> str:
     return text if text else normalize_arabic(safe_str(name))
 
 
+def clean_rep_name(name) -> str:
+    """
+    Unify sales-rep name spelling: collapse spaces, Title Case for Latin
+    names ("saif hassib" → "Saif Hassib"). Arabic names are only space-trimmed.
+    """
+    s = safe_str(name)
+    s = _RE_SPACES.sub(" ", s).strip()
+    if s and not contains_arabic(s):
+        s = s.title()
+    return s
+
+
 def deduplicate_customer_names(df: pd.DataFrame, name_col: str = "Customer Name") -> pd.DataFrame:
     """Add 'Customer Name Cleaned' column used for grouping without overwriting original."""
     if name_col not in df.columns:
@@ -338,6 +350,10 @@ def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
     df = parse_dates(df)
     df = df.sort_values("Visit Date", ascending=True).reset_index(drop=True)
+
+    # ── Sales Rep name unification (case / spacing duplicates) ──
+    if "Sales Rep Name" in df.columns:
+        df["Sales Rep Name"] = df["Sales Rep Name"].apply(clean_rep_name)
 
     # ── Customer Name Cleaning ──
     if "Customer Name" in df.columns:

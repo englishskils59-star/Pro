@@ -25,7 +25,13 @@ from dashboard import (
 from export_manager import (
     export_customer_summary, export_sales_rep_kpi,
     export_executive_dashboard, export_classification_results,
-    export_followup_customers,
+    export_followup_customers, export_monthly_report,
+)
+from insights import (
+    extract_promises, next_best_visits, competitor_mentions,
+    weekday_productivity, note_quality, data_quality_summary,
+    engine_agreement, unclassified_phrases, period_comparison,
+    coverage_map, conversion_retention,
 )
 from storage_manager import (
     load_config, save_config, set_data_dir, get_data_dir,
@@ -191,6 +197,30 @@ def get_view() -> dict:
     return cache
 
 
+def view_insights(view: dict) -> dict:
+    """Lazily compute promises / visit priorities / competitors for the
+    active view; results stick to the view cache until the filter changes."""
+    if "promises" not in view:
+        with st.spinner("🔎 استخراج الوعود والأولويات والمنافسين..."):
+            view["promises"]    = extract_promises(view["classified"], view["journey"])
+            view["nbv"]         = next_best_visits(view["journey"], view["classified"], view["promises"])
+            view["competitors"] = competitor_mentions(view["classified"], view["journey"])
+    return view
+
+
+def _xlsx_download(df: pd.DataFrame, label: str, file_name: str, key: str):
+    """Small helper: offer a DataFrame as a styled-enough Excel download."""
+    out = io.BytesIO()
+    export_df = df.copy()
+    for col in export_df.columns:
+        if pd.api.types.is_datetime64_any_dtype(export_df[col]):
+            export_df[col] = export_df[col].dt.strftime("%Y-%m-%d")
+    with pd.ExcelWriter(out, engine="openpyxl") as w:
+        export_df.to_excel(w, index=False)
+    st.download_button(label, data=out.getvalue(), file_name=file_name, key=key,
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
 def reclassify_and_save():
     """Re-run classification on the loaded data (after rule/merge changes),
     re-apply manual overrides, rebuild everything and persist."""
@@ -289,6 +319,10 @@ with st.sidebar:
         "👥 Customer Analytics",
         "🏆 Sales Rep Performance",
         "🏢 Executive Dashboard",
+        "🎯 خطة المتابعة",
+        "🥊 المنافسون",
+        "🔍 عميل 360",
+        "📈 جودة البيانات والمحرك",
         "⚙️ Settings",
     ], label_visibility="collapsed")
 
@@ -966,6 +1000,17 @@ elif page == "👥 Customer Analytics":
             st.markdown("**عملاء حسب المنطقة (أعلى 20)**")
             st.dataframe(dist_df.head(20), use_container_width=True, hide_index=True)
 
+    section("🗺️ خريطة التغطية")
+    cmap = coverage_map(view["classified"], journey_df)
+    if cmap["fig"] is not None:
+        st.plotly_chart(cmap["fig"], use_container_width=True)
+        if cmap["unmatched"]:
+            st.caption("⚠️ محافظات لم يتم التعرف على موقعها: " + "، ".join(cmap["unmatched"]))
+        with st.expander("📋 جدول التغطية بالمحافظات"):
+            st.dataframe(cmap["table"], use_container_width=True, hide_index=True)
+    else:
+        st.info("لا توجد بيانات محافظات كافية لرسم الخريطة")
+
     section("تصدير")
     journey_clean = journey_df.drop(columns=["_journey"], errors="ignore")
     st.download_button("⬇️ Customer Summary.xlsx",
@@ -1061,6 +1106,15 @@ elif page == "🏆 Sales Rep Performance":
                 pivot["الإجمالي"] = pivot.iloc[:,1:].sum(axis=1)
                 st.dataframe(pivot, use_container_width=True, hide_index=True)
 
+    # ── Weekday productivity ──
+    section("🕒 إنتاجية أيام الأسبوع")
+    wp = weekday_productivity(classified)
+    if wp["heatmap"] is not None:
+        st.plotly_chart(wp["heatmap"], use_container_width=True)
+    if not wp["stats"].empty:
+        st.markdown("**أيام العمل الفعلية لكل مندوب**")
+        st.dataframe(wp["stats"], use_container_width=True, hide_index=True)
+
     section("تصدير")
     st.download_button("⬇️ Sales Rep KPI.xlsx",
                        data=export_sales_rep_kpi(rep_kpi_df),
@@ -1092,6 +1146,18 @@ elif page == "🏢 Executive Dashboard":
         c5,c6,c7,c8 = st.columns(4)
         for col,(label,val) in zip([c5,c6,c7,c8], kpi_items[4:8]):
             with col: st.metric(label, fmt_number(val))
+
+    # ── Month-over-month comparison ──
+    funnel_pre = exec_data.get("funnel", {})
+    cmp = period_comparison(view["classified"], funnel_pre.get("transitions", pd.DataFrame()))
+    if cmp["metrics"]:
+        section(f"📅 مقارنة شهرية: {cmp['cur_label']} مقابل {cmp['prev_label']}")
+        metric_rows = [cmp["metrics"][i:i+4] for i in range(0, len(cmp["metrics"]), 4)]
+        for row_m in metric_rows:
+            cols_m = st.columns(len(row_m))
+            for col, (label, cur, prev) in zip(cols_m, row_m):
+                with col:
+                    st.metric(label, fmt_number(cur), delta=int(cur - prev))
 
     st.markdown("<br>", unsafe_allow_html=True)
     section("تريند الزيارات الشهري")
@@ -1130,12 +1196,20 @@ elif page == "🏢 Executive Dashboard":
     churn_df = funnel.get("churn", pd.DataFrame())
     trans_df = funnel.get("transitions", pd.DataFrame())
 
-    fk1, fk2, fk3, fk4 = st.columns(4)
+    ret = conversion_retention(conv_df, journey_df)
+
+    fk1, fk2, fk3, fk4, fk5 = st.columns(5)
     fk1.metric("إجمالي التحوّلات", fmt_number(len(trans_df)))
     fk2.metric("تحوّلوا إلى عميل حالي", fmt_number(len(conv_df)))
     avg_days = conv_df["Days To Convert"].mean() if ("Days To Convert" in conv_df.columns and not conv_df.empty) else None
     fk3.metric("متوسط أيام التحويل", f"{avg_days:.0f} يوم" if pd.notnull(avg_days) else "—")
-    fk4.metric("عملاء متسربون", fmt_number(len(churn_df)))
+    fk4.metric("معدل بقاء المحوّلين", f"{ret['retention_pct']}%" if ret["retention_pct"] is not None else "—",
+               help="نسبة العملاء الذين تحولوا لـ(حالي) وما زالوا كذلك حتى الآن")
+    fk5.metric("عملاء متسربون", fmt_number(len(churn_df)))
+
+    if not ret["lost_after_conversion"].empty:
+        with st.expander(f"⚠️ عملاء تحوّلوا لحاليين ثم فُقدوا ({len(ret['lost_after_conversion'])})"):
+            st.dataframe(ret["lost_after_conversion"], use_container_width=True)
 
     if not trans_df.empty:
         fc1, fc2 = st.columns(2)
@@ -1192,6 +1266,290 @@ elif page == "🏢 Executive Dashboard":
                                file_name="Customer_Summary.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                use_container_width=True)
+
+    # ── Comprehensive monthly report ──
+    with st.expander("📑 التقرير الشهري الشامل (كل الأقسام في ملف واحد)"):
+        st.markdown("ملف Excel واحد جاهز للاجتماع: مقارنة شهرية، التحويلات، المتسربون، الوعود المستحقة، أولويات الزيارة، المنافسون، وترتيب المندوبين.")
+        if st.button("⚙️ تجهيز التقرير", key="gen_monthly_report"):
+            with st.spinner("📑 تجهيز التقرير الشامل..."):
+                vi = view_insights(view)
+                promises_df = vi["promises"]
+                due = promises_df[promises_df["حالة الوعد"] == "🔥 مستحق الآن"] if not promises_df.empty else pd.DataFrame()
+                report_bytes = export_monthly_report(cmp, {
+                    "التحويلات لعميل حالي": funnel_pre.get("conversions", pd.DataFrame()),
+                    "العملاء المتسربون":    funnel_pre.get("churn", pd.DataFrame()),
+                    "الوعود المستحقة":      due,
+                    "أولويات الزيارة":      vi["nbv"].head(150),
+                    "المنافسون":            vi["competitors"]["by_competitor"],
+                    "ترتيب المندوبين":      rep_kpi_df,
+                })
+                st.session_state["_monthly_report"] = report_bytes
+        if st.session_state.get("_monthly_report"):
+            st.download_button("⬇️ تحميل التقرير الشهري الشامل.xlsx",
+                               data=st.session_state["_monthly_report"],
+                               file_name="WDI_Monthly_Report.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               use_container_width=True)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# PAGE — ACTION CENTER (خطة المتابعة)
+# ═══════════════════════════════════════════════════════════════════
+
+elif page == "🎯 خطة المتابعة":
+    page_banner("🎯", "خطة المتابعة", "أولويات الزيارة القادمة + متتبع الوعود")
+
+    if not st.session_state["processing_done"]:
+        no_data_warning(); st.stop()
+
+    view = view_insights(get_view())
+    nbv_df      = view["nbv"]
+    promises_df = view["promises"]
+
+    due_now   = promises_df[promises_df["حالة الوعد"] == "🔥 مستحق الآن"] if not promises_df.empty else pd.DataFrame()
+    upcoming  = promises_df[promises_df["حالة الوعد"] == "⏳ لم يستحق بعد"] if not promises_df.empty else pd.DataFrame()
+    hot       = nbv_df[nbv_df["أولوية الزيارة"] >= 50] if not nbv_df.empty else pd.DataFrame()
+
+    kpi_row({
+        "وعود مستحقة الآن 🔥": len(due_now),
+        "وعود قادمة ⏳":       len(upcoming),
+        "عملاء أولوية قصوى":   len(hot),
+        "إجمالي قائمة الزيارات": len(nbv_df),
+    })
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Filters ──
+    pf1, pf2 = st.columns(2)
+    with pf1:
+        reps_all = ["الكل"] + sorted([r for r in nbv_df["Sales Rep Name"].dropna().unique() if r]) if not nbv_df.empty else ["الكل"]
+        sel_rep_p = st.selectbox("المندوب", reps_all, key="ac_rep")
+    with pf2:
+        govs_all = ["الكل"] + sorted([g for g in nbv_df["Governorate"].dropna().unique() if g]) if not nbv_df.empty else ["الكل"]
+        sel_gov_p = st.selectbox("المحافظة", govs_all, key="ac_gov")
+
+    def _pfilter(df):
+        if df.empty: return df
+        out = df
+        if sel_rep_p != "الكل" and "Sales Rep Name" in out.columns:
+            out = out[out["Sales Rep Name"] == sel_rep_p]
+        if sel_gov_p != "الكل" and "Governorate" in out.columns:
+            out = out[out["Governorate"] == sel_gov_p]
+        return out
+
+    # ── Section 1: Next Best Visit ──
+    section("🗓️ أولويات الزيارة القادمة")
+    st.markdown("ترتيب ذكي: وعود مستحقة، محتملون قريبون من القرار، متسربون للإنقاذ، وعملاء حاليون في خطر.")
+    nbv_f = _pfilter(nbv_df)
+    top_n = st.slider("عدد العملاء المعروضين", 10, 200, 50, 10, key="ac_topn")
+    show_nbv = nbv_f.head(top_n)
+    st.dataframe(show_nbv, use_container_width=True, height=420)
+    if not show_nbv.empty:
+        _xlsx_download(show_nbv, "⬇️ تصدير خطة الزيارات Excel", "Visit_Priority_Plan.xlsx", key="dl_nbv")
+
+    # ── Section 2: Promise tracker ──
+    section("🤝 متتبع الوعود")
+    st.markdown("وعود مستخرجة تلقائياً من ملاحظات الزيارات (تجربة، بدء بعد الدورة، ميعاد متفق عليه...).")
+    if promises_df.empty:
+        st.info("لا توجد وعود مستخرجة من الملاحظات")
+    else:
+        pstates = ["الكل"] + promises_df["حالة الوعد"].unique().tolist()
+        sel_pstate = st.selectbox("حالة الوعد", pstates, key="ac_pstate")
+        prom_f = _pfilter(promises_df)
+        if sel_pstate != "الكل":
+            prom_f = prom_f[prom_f["حالة الوعد"] == sel_pstate]
+        show_p = prom_f.copy()
+        for dc in ["تاريخ الوعد", "الاستحقاق"]:
+            show_p[dc] = pd.to_datetime(show_p[dc], errors="coerce").dt.strftime("%Y-%m-%d")
+        st.info(f"🤝 {len(show_p):,} وعد")
+        st.dataframe(show_p, use_container_width=True, height=420)
+        if not show_p.empty:
+            _xlsx_download(show_p, "⬇️ تصدير الوعود Excel", "Promise_Tracker.xlsx", key="dl_prom")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# PAGE — COMPETITORS (المنافسون)
+# ═══════════════════════════════════════════════════════════════════
+
+elif page == "🥊 المنافسون":
+    page_banner("🥊", "تحليل المنافسين", "استخبارات تنافسية من ملاحظات الزيارات")
+
+    if not st.session_state["processing_done"]:
+        no_data_warning(); st.stop()
+
+    view = view_insights(get_view())
+    comp = view["competitors"]
+    mentions = comp["mentions"]
+
+    if mentions.empty:
+        st.info("لا توجد إشارات لمنافسين في الملاحظات")
+        st.stop()
+
+    losing = comp["losing_to"]
+    kpi_row({
+        "منافسون مذكورون":        mentions["المنافس"].nunique(),
+        "عملاء مرتبطون بمنافس":   mentions["Customer Name"].nunique(),
+        "عملاء نخسرهم لمنافس":    losing["Customer Name"].nunique() if not losing.empty else 0,
+        "إشارات إجمالية":         len(mentions),
+    })
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    cc1, cc2 = st.columns([1, 1])
+    with cc1:
+        if comp["fig_competitors"] is not None:
+            st.plotly_chart(comp["fig_competitors"], use_container_width=True)
+    with cc2:
+        section("المنافس × المحافظة (عملاء)")
+        if not comp["by_gov_matrix"].empty:
+            st.dataframe(comp["by_gov_matrix"], use_container_width=True, height=500)
+
+    section("🚨 عملاء نخسرهم لمنافس (مستهدف / غير مهتم / سابق)")
+    if losing.empty:
+        st.success("لا يوجد")
+    else:
+        show_l = losing.copy()
+        if "Visit Date" in show_l.columns:
+            show_l["Visit Date"] = pd.to_datetime(show_l["Visit Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+        st.dataframe(show_l, use_container_width=True, height=400)
+        _xlsx_download(show_l, "⬇️ تصدير القائمة Excel", "Losing_To_Competitors.xlsx", key="dl_lose")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# PAGE — CUSTOMER 360 (عميل 360)
+# ═══════════════════════════════════════════════════════════════════
+
+elif page == "🔍 عميل 360":
+    page_banner("🔍", "ملف العميل 360", "كل شيء عن عميل واحد في شاشة واحدة")
+
+    if not st.session_state["processing_done"]:
+        no_data_warning(); st.stop()
+
+    view = view_insights(get_view())
+    classified_df = view["classified"]
+    journey_df    = view["journey"]
+
+    search360 = st.text_input("🔍 ابحث باسم العميل", key="c360_search")
+    names = journey_df["Customer Name"].tolist() if not journey_df.empty else []
+    if search360.strip():
+        norm_q = search360.strip()
+        names = [n for n in names if norm_q in str(n)]
+    if not names:
+        st.warning("لا توجد نتائج — جرّب جزءاً من الاسم")
+        st.stop()
+
+    sel360 = st.selectbox("اختر العميل", names, key="c360_sel")
+    jrow = journey_df[journey_df["Customer Name"] == sel360].iloc[0]
+    cust_v = classified_df[classified_df["Customer Name"] == sel360].sort_values("Visit Date")
+
+    # ── Header metrics ──
+    h1, h2, h3, h4, h5 = st.columns(5)
+    h1.metric("الحالة الحالية", jrow["Latest Status"])
+    h2.metric("عدد الزيارات", int(jrow["Visit Count"]))
+    h3.metric("منذ آخر زيارة", f"{int(jrow['Days Since Last Visit'])} يوم" if pd.notnull(jrow["Days Since Last Visit"]) else "—")
+    h4.metric("المحافظة", jrow.get("Governorate") or "—")
+    h5.metric("المندوب", jrow.get("Sales Rep Name") or "—")
+
+    # ── Alerts for this customer ──
+    promises_df = view["promises"]
+    my_prom = promises_df[promises_df["Customer Name"] == sel360] if not promises_df.empty else pd.DataFrame()
+    if not my_prom.empty:
+        p = my_prom.iloc[0]
+        st.warning(f"🤝 وعد نشط: **{p['نوع الوعد']}** منذ {int(p['أيام منذ الوعد'])} يوم — الحالة: {p['حالة الوعد']}")
+    my_comp = view["competitors"]["mentions"]
+    my_comp = my_comp[my_comp["Customer Name"] == sel360] if not my_comp.empty else pd.DataFrame()
+    if not my_comp.empty:
+        st.error("🥊 مرتبط بمنافس: " + "، ".join(sorted(my_comp["المنافس"].unique())))
+
+    # ── Status timeline ──
+    section("الخط الزمني للحالة")
+    tl = cust_v.dropna(subset=["Visit Date"]).copy()
+    if not tl.empty:
+        fig_tl = px.scatter(
+            tl, x="Visit Date", y="Display Status", color="Display Status",
+            color_discrete_map=STATUS_COLORS, template="plotly_white",
+            hover_data={"Visit Notes": True} if "Visit Notes" in tl.columns else None,
+        )
+        fig_tl.update_traces(marker=dict(size=14, line=dict(width=1, color="#FFFFFF")))
+        fig_tl.update_layout(paper_bgcolor="#F5F7FA", showlegend=False, height=300,
+                             margin=dict(l=20, r=20, t=20, b=20), yaxis_title="", xaxis_title="")
+        st.plotly_chart(fig_tl, use_container_width=True)
+        st.code(jrow.get("Status History", "—"), language=None)
+
+    # ── All visits ──
+    section("كل الزيارات")
+    vcols = ["Visit Date", "Sales Rep Name", "Display Status", "Confidence Score",
+             "Visit Notes", "Matched Keywords", "Override Source"]
+    vcols = [c for c in vcols if c in cust_v.columns]
+    show_v = cust_v[vcols].copy()
+    show_v["Visit Date"] = pd.to_datetime(show_v["Visit Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    st.dataframe(show_v.reset_index(drop=True), use_container_width=True, height=360)
+    _xlsx_download(show_v, "⬇️ تصدير ملف العميل Excel", f"Customer_360.xlsx", key="dl_c360")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# PAGE — DATA & ENGINE QUALITY (جودة البيانات والمحرك)
+# ═══════════════════════════════════════════════════════════════════
+
+elif page == "📈 جودة البيانات والمحرك":
+    page_banner("📈", "جودة البيانات والمحرك", "صحة البيانات، جودة التسجيل، ودقة التصنيف")
+
+    if not st.session_state["processing_done"]:
+        no_data_warning(); st.stop()
+
+    master_df = st.session_state["classified_df"]
+
+    # ── Data health ──
+    section("🩺 صحة البيانات")
+    dq = data_quality_summary(master_df)
+    q1, q2, q3, q4, q5 = st.columns(5)
+    q1.metric("زيارات بدون مندوب", fmt_number(dq["no_rep"]),
+              delta=f"-{dq['no_rep']/max(1,dq['total'])*100:.0f}%" if dq["no_rep"] else None,
+              delta_color="inverse")
+    q2.metric("بدون محافظة", fmt_number(dq["no_gov"]))
+    q3.metric("بدون ملاحظات", fmt_number(dq["no_note"]))
+    q4.metric("بدون تاريخ", fmt_number(dq["no_date"]))
+    q5.metric("صفوف مكررة تماماً", fmt_number(dq["exact_dups"]))
+    if dq["no_rep"] > dq["total"] * 0.1:
+        st.warning(f"⚠️ **{dq['no_rep']:,}** زيارة ({dq['no_rep']/max(1,dq['total'])*100:.0f}%) بدون اسم مندوب — راجع ملف المصدر، هذه الزيارات لا تُحسب لأي مندوب في التقارير.")
+
+    # ── Note quality per rep ──
+    section("📝 جودة تسجيل الملاحظات لكل مندوب")
+    nq = note_quality(master_df)
+    if not nq.empty:
+        st.dataframe(nq, use_container_width=True, hide_index=True, height=380)
+        st.caption("الملاحظات المنسوخة = ملاحظات متطابقة حرفياً لنفس المندوب (مؤشر تسجيل شكلي)")
+
+    # ── Engine accuracy vs manual ──
+    section("🎯 دقة المحرك مقابل التصنيف اليدوي")
+    st.markdown("يُعاد تصنيف الزيارات المصنفة يدوياً بالمحرك الحالي وتُقارن النتيجة بقرار الموظف.")
+    if st.button("▶️ تشغيل القياس", key="run_agreement"):
+        with st.spinner("قياس التطابق..."):
+            st.session_state["_agreement"] = engine_agreement(master_df)
+    agr = st.session_state.get("_agreement")
+    if agr and "engine_blind" not in agr:
+        agr = None  # stale result from an older app version
+    if agr and agr["n"]:
+        a1, a2, a3 = st.columns(3)
+        a1.metric("زيارات مصنفة يدوياً", fmt_number(agr["n"]))
+        a2.metric("المحرك بلا رأي فيها", fmt_number(agr["engine_blind"]),
+                  help="زيارات لا تطابق أي قاعدة كلمات — لهذا صُنفت يدوياً. كلما أضفت قواعد جديدة انخفض هذا الرقم")
+        a3.metric("التطابق حيث للمحرك رأي",
+                  f"{agr['agreement']}%" if agr["agreement"] is not None else "—",
+                  help=f"مقارنة على {agr['n_opinion']} زيارة يستطيع المحرك تصنيفها")
+        if not agr["confusion"].empty:
+            st.markdown("**مصفوفة المقارنة (صفوف: قرار الموظف — أعمدة: قرار المحرك)**")
+            st.dataframe(agr["confusion"], use_container_width=True)
+        if not agr["samples"].empty:
+            with st.expander(f"أمثلة على الاختلاف ({len(agr['samples'])})"):
+                st.dataframe(agr["samples"], use_container_width=True, height=320)
+
+    # ── Rule suggestions from unclassified ──
+    section("💡 عبارات مرشحة لقواعد جديدة")
+    st.markdown("أكثر العبارات تكراراً في الزيارات **غير المصنفة أو ضعيفة الثقة** — أضفها كقواعد من تبويب (قواعد الكلمات).")
+    phrases = unclassified_phrases(master_df)
+    if phrases.empty:
+        st.success("✅ لا توجد عبارات متكررة غير مغطاة — المحرك يغطي البيانات الحالية جيداً")
+    else:
+        st.dataframe(phrases, use_container_width=True, hide_index=True, height=380)
 
 
 # ═══════════════════════════════════════════════════════════════════

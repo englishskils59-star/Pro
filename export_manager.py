@@ -269,6 +269,54 @@ def export_classification_results(classified_df: pd.DataFrame) -> bytes:
     return buf.getvalue()
 
 
+def export_monthly_report(comparison: dict, sheets: dict) -> bytes:
+    """
+    One-click comprehensive monthly report.
+    comparison: output of insights.period_comparison
+    sheets: {sheet_name: DataFrame} — written in order, skipping empties.
+    """
+    wb = openpyxl.Workbook()
+
+    # ── Sheet 1: month-over-month comparison ──
+    ws = wb.active
+    ws.title = "مقارنة شهرية"
+    ws.sheet_view.rightToLeft = True
+    rows = []
+    for label, cur, prev in comparison.get("metrics", []):
+        change = ((cur - prev) / prev * 100) if prev else None
+        rows.append({
+            "المؤشر": label,
+            f"الشهر الحالي ({comparison.get('cur_label','')})": cur,
+            f"الشهر السابق ({comparison.get('prev_label','')})": prev,
+            "التغير %": f"{change:+.1f}%" if change is not None else "—",
+        })
+    cmp_df = pd.DataFrame(rows) if rows else pd.DataFrame({"المؤشر": ["لا توجد بيانات"]})
+    _write_df_to_sheet(ws, cmp_df, header_color=PRIMARY)
+    _add_title_row(ws, f"WDI — التقرير الشهري الشامل  |  {_timestamp()}", len(cmp_df.columns))
+
+    # ── Remaining sheets ──
+    colors = [SECONDARY, ACCENT, PRIMARY, "C00000", SECONDARY, ACCENT, PRIMARY]
+    for i, (name, df) in enumerate(sheets.items()):
+        if df is None or (hasattr(df, "empty") and df.empty):
+            continue
+        df_out = df.copy()
+        # stringify datetimes for clean display
+        for col in df_out.columns:
+            if pd.api.types.is_datetime64_any_dtype(df_out[col]):
+                df_out[col] = df_out[col].dt.strftime("%Y-%m-%d")
+        ws_i = wb.create_sheet(str(name)[:31])
+        ws_i.sheet_view.rightToLeft = True
+        _write_df_to_sheet(ws_i, df_out.reset_index(drop=False)
+                           if df_out.index.name else df_out,
+                           header_color=colors[i % len(colors)])
+        _add_title_row(ws_i, str(name), len(df_out.columns) + (1 if df_out.index.name else 0),
+                       color=colors[i % len(colors)])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def export_followup_customers(journey_df: pd.DataFrame, days_threshold: int = 30) -> bytes:
     """
     Export customers who haven't been visited for >= days_threshold days.

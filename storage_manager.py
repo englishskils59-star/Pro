@@ -247,8 +247,14 @@ def load_session() -> tuple[bool, dict]:
         rep_kpi_df    = _parquet_to_df(paths["rep_kpi"]) if paths["rep_kpi"].exists() else pd.DataFrame()
         metadata      = _load_metadata()
 
+        # Unify rep-name spelling on data saved before this feature existed
+        if "Sales Rep Name" in classified_df.columns:
+            from utils import clean_rep_name
+            classified_df["Sales Rep Name"] = classified_df["Sales Rep Name"].apply(clean_rep_name)
+
         # Apply saved name merges, then saved overrides
         classified_df = apply_name_merges(classified_df)
+        _rekey_overrides_if_needed(classified_df)
         classified_df, override_count = _apply_saved_overrides(classified_df)
 
         # Rebuild the journey instead of loading the stale saved copy:
@@ -307,12 +313,16 @@ VALID_STATUSES = [
 # re-uploads correctly.
 # ═══════════════════════════════════════════════════════════════════
 
+OVERRIDE_KEY_VERSION = 2  # v2: rep name is case/space-insensitive in the key
+
+
 def _visit_key(customer, visit_date, rep, note) -> str:
     d = str(pd.to_datetime(visit_date, errors="coerce"))[:10]
+    rep_norm = " ".join(normalize_arabic(safe_str(rep)).split()).casefold()
     base = "|".join([
         normalize_arabic(safe_str(customer)),
         d,
-        normalize_arabic(safe_str(rep)),
+        rep_norm,
         normalize_arabic(safe_str(note))[:60],
     ])
     return hashlib.md5(base.encode("utf-8")).hexdigest()
@@ -568,6 +578,39 @@ def _save_overrides(override_df: pd.DataFrame):
         meta = _load_metadata()
         meta["override_count"] = len(combined)
         _save_metadata(meta)
+
+
+def _rekey_overrides_if_needed(classified_df: pd.DataFrame):
+    """
+    One-time re-keying when the key formula changes (OVERRIDE_KEY_VERSION).
+    The saved classified data already has manual rows marked
+    (Override Source == "Manual"), so the overrides file can be rebuilt
+    from those rows with fresh keys — nothing is lost.
+    """
+    try:
+        meta = _load_metadata()
+        if int(meta.get("override_key_version", 1)) >= OVERRIDE_KEY_VERSION:
+            return
+        if "Override Source" in classified_df.columns:
+            manual = classified_df[classified_df["Override Source"] == "Manual"]
+            if not manual.empty:
+                keys = _visit_key_series(manual)
+                rebuilt = pd.DataFrame({
+                    "Key":            keys.values,
+                    "Customer Name":  manual["Customer Name"].astype(str).values
+                                      if "Customer Name" in manual.columns else "",
+                    "Visit Date":     manual["Visit Date"].astype(str).str[:10].values
+                                      if "Visit Date" in manual.columns else "",
+                    "Sales Rep Name": manual["Sales Rep Name"].astype(str).values
+                                      if "Sales Rep Name" in manual.columns else "",
+                    "Manual Status":  manual["Display Status"].astype(str).values,
+                }).drop_duplicates(subset=["Key"], keep="last")
+                with _write_lock():
+                    _df_to_parquet(rebuilt, _paths()["overrides"])
+        meta["override_key_version"] = OVERRIDE_KEY_VERSION
+        _save_metadata(meta)
+    except Exception:
+        pass  # keep old overrides file untouched on any failure
 
 
 def _migrate_legacy_overrides(overrides: pd.DataFrame, classified_df: pd.DataFrame) -> pd.DataFrame:
