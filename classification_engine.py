@@ -342,11 +342,15 @@ KEYWORD_RULES: list[dict] = [
     {"keyword": "بيوكل مزارع نيوهوب",    "status": "target", "score": 40},
     {"keyword": "سمسار دواجن",            "status": "target", "score": 30},
     {"keyword": "موزع كتاكيت",            "status": "target", "score": 30},
-    {"keyword": "غير موجود",             "status": "target",       "score": 40},
-    {"keyword": "لم يكن متواجد",             "status": "target",       "score": 40},
-    {"keyword": "مسافر",             "status": "target",       "score": 40},
     {"keyword": "لاقرار",             "status": "target",       "score": 40},
-    {"keyword": "العميل غائب",             "status": "target",       "score": 40},
+
+    # ── NO MEETING (العميل غير متواجد — لا تغيّر موقف العميل) ─────
+    {"keyword": "غير موجود",       "status": "no_meeting", "score": 100},
+    {"keyword": "لم يكن متواجد",   "status": "no_meeting", "score": 100},
+    {"keyword": "مسافر",           "status": "no_meeting", "score": 100},
+    {"keyword": "العميل غائب",     "status": "no_meeting", "score": 100},
+    {"keyword": "لم تتم المقابلة", "status": "no_meeting", "score": 100},
+    {"keyword": "لم تتم مقابلته",  "status": "no_meeting", "score": 100},
 
     # ── NEW CUSTOMER  (+80) ───────────────────────────────────────
     {"keyword": "أول زيارة",           "status": "new",          "score": 80},
@@ -456,10 +460,6 @@ KEYWORD_RULES: list[dict] = [
     {"keyword": "خلطته الخاصة",          "status": "not_interested", "score": -100},
 ]
 
-# Pre-normalize keywords once at import time for performance
-for _rule in KEYWORD_RULES:
-    _rule["_norm"] = normalize_arabic(_rule["keyword"])
-
 # Status display labels
 STATUS_DISPLAY = {
     "current":       "Current Customer",
@@ -468,11 +468,57 @@ STATUS_DISPLAY = {
     "new":           "New Customer",
     "former":        "Former Customer",
     "not_interested":"Not Interested",
+    "no_meeting":    "No Meeting",
     "unclassified":  "Unclassified",
 }
 
 # Priority order for tie-breaking (highest priority first)
-STATUS_PRIORITY = ["current", "potential", "new", "target", "former", "not_interested", "unclassified"]
+STATUS_PRIORITY = ["current", "potential", "new", "target", "former", "not_interested", "no_meeting", "unclassified"]
+
+# Visit statuses that don't represent a real customer position
+NON_STATUS = {"No Meeting", "Unclassified"}
+
+
+def _prepare_rules(rules: list[dict]) -> list[dict]:
+    """
+    Normalize keywords and remove duplicates.
+
+    - Scores are stored as positive magnitudes: the winner is always the
+      status with the highest total, so 'not_interested' competes fairly
+      instead of always losing with a negative score.
+    - If the same normalized keyword appears twice with the same status,
+      only the highest score is kept (no double counting).
+    - If it appears under two different statuses (e.g. "أول زيارة" as both
+      new and target), the status earlier in STATUS_PRIORITY wins.
+    """
+    best: dict[str, dict] = {}
+    for r in rules:
+        norm = normalize_arabic(r["keyword"])
+        if not norm:
+            continue
+        cand = {"keyword": r["keyword"], "status": r["status"],
+                "score": abs(r["score"]), "_norm": norm}
+        cur = best.get(norm)
+        if cur is None:
+            best[norm] = cand
+        elif cand["status"] == cur["status"]:
+            if cand["score"] > cur["score"]:
+                best[norm] = cand
+        elif STATUS_PRIORITY.index(cand["status"]) < STATUS_PRIORITY.index(cur["status"]):
+            best[norm] = cand
+    return list(best.values())
+
+
+# Base rules are fixed in code; custom rules (from the UI) are merged on top.
+_BASE_RULES = _prepare_rules(KEYWORD_RULES)
+ACTIVE_RULES: list[dict] = _BASE_RULES
+
+
+def set_custom_rules(custom_rules: list[dict]):
+    """Merge user-defined rules (from Settings/Rules tab) over the base rules."""
+    global ACTIVE_RULES
+    custom_rules = custom_rules or []
+    ACTIVE_RULES = _prepare_rules(KEYWORD_RULES + list(custom_rules))
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -495,15 +541,31 @@ def classify_note(note: str, is_first_appearance: bool = False) -> dict:
     """
     norm_note = normalize_arabic(safe_str(note))
 
+    # Find each rule's first occurrence with its position, so a keyword that
+    # is swallowed by a longer matched keyword can be suppressed —
+    # e.g. "مهتم" inside "غير مهتم" or "يرغب" inside "لا يرغب".
+    hits: list[tuple[int, int, dict]] = []
+    for rule in ACTIVE_RULES:
+        pos = norm_note.find(rule["_norm"])
+        if pos != -1:
+            hits.append((pos, pos + len(rule["_norm"]), rule))
+
+    kept_rules: list[dict] = []
+    for i, (s1, e1, r1) in enumerate(hits):
+        swallowed = any(
+            s2 <= s1 and e1 <= e2 and (e2 - s2) > (e1 - s1)
+            for j, (s2, e2, _r2) in enumerate(hits) if j != i
+        )
+        if not swallowed:
+            kept_rules.append(r1)
+
     # Accumulate scores per status
     score_map: dict[str, int] = {}
     matched: list[str] = []
-
-    for rule in KEYWORD_RULES:
-        if rule["_norm"] in norm_note:
-            status = rule["status"]
-            score_map[status] = score_map.get(status, 0) + rule["score"]
-            matched.append(rule["keyword"])
+    for rule in kept_rules:
+        status = rule["status"]
+        score_map[status] = score_map.get(status, 0) + rule["score"]
+        matched.append(rule["keyword"])
 
     # First-appearance bonus for "new"
     if is_first_appearance:
@@ -524,15 +586,17 @@ def classify_note(note: str, is_first_appearance: bool = False) -> dict:
         suggested = sorted_statuses[0]
         total_score = score_map[suggested]
 
-    # Confidence: map score to 0-100 range
-    # Max single-keyword score is 100; cap confidence at 99%
+    # Confidence: winner's score capped at 100, discounted by how strongly
+    # a competing status also matched (mixed signals → lower confidence).
     if total_score <= 0:
         confidence = 0.0
     else:
-        confidence = min(99.0, round((total_score / max(total_score, 100)) * 100, 1))
-        # Boost confidence slightly for very high scores
-        if total_score >= 200:
-            confidence = min(99.0, confidence + 10)
+        base = float(min(100, total_score))
+        if len(sorted_statuses) > 1:
+            runner_up = score_map[sorted_statuses[1]]
+            if runner_up > 0:
+                base = base * total_score / (total_score + runner_up)
+        confidence = min(99.0, round(base, 1))
 
     # Build reason string
     if matched:
@@ -584,15 +648,17 @@ def classify_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     notes_col    = df["Visit Notes"].tolist()    if "Visit Notes"    in df.columns else [""] * len(df)
     customer_col = df["Customer Name"].tolist()  if "Customer Name"  in df.columns else [""] * len(df)
 
+    new_hint_norms = [normalize_arabic(kw) for kw in ["أول زيارة", "تعارف", "عميل جديد"]]
+
     for i in range(len(df)):
         note     = safe_str(notes_col[i])
         customer = safe_str(customer_col[i]).strip()
 
-        is_first = customer not in seen_customers
+        norm_note = normalize_arabic(note)
+        has_new_keyword = any(kw in norm_note for kw in new_hint_norms)
+        is_first = bool(customer) and customer not in seen_customers
         if customer:
             seen_customers.add(customer)
-            new_keywords = ["أول زيارة", "تعارف", "عميل جديد"]
-            has_new_keyword = any(kw in safe_str(note) for kw in new_keywords)
         result = classify_note(note, is_first_appearance=is_first and has_new_keyword)
 
         suggested_statuses.append(result["suggested_status"])
@@ -648,7 +714,11 @@ def build_customer_journey(classified_df: pd.DataFrame) -> pd.DataFrame:
                 "sales_rep":  safe_str(row.get("Sales Rep Name", "")),
             })
 
-        latest_row        = visits.iloc[-1]
+        # Latest REAL status: No Meeting / Unclassified visits must not
+        # overwrite the customer's last actual classification.
+        real_visits = visits[~visits["Display Status"].isin(NON_STATUS)] \
+            if "Display Status" in visits.columns else visits
+        latest_row        = real_visits.iloc[-1] if len(real_visits) else visits.iloc[-1]
         latest_status     = safe_str(latest_row.get("Display Status", "Unclassified"))
         latest_confidence = latest_row.get("Confidence Score", 0.0)
 
@@ -694,29 +764,30 @@ def customers_not_visited(journey_df: pd.DataFrame, days: int) -> pd.DataFrame:
 # ═══════════════════════════════════════════════════════════════════
 
 def get_rules_dataframe() -> pd.DataFrame:
-    """Return current keyword rules as a DataFrame for display/editing."""
+    """Return the active (deduplicated base + custom) rules for display."""
+    base_norms = {r["_norm"] for r in _BASE_RULES}
     rows = [
         {
             "Keyword":   r["keyword"],
             "Status":    STATUS_DISPLAY.get(r["status"], r["status"]),
             "Score":     r["score"],
+            "Source":    "أساسي" if r["_norm"] in base_norms else "مخصص",
         }
-        for r in KEYWORD_RULES
+        for r in ACTIVE_RULES
     ]
     return pd.DataFrame(rows)
 
 
-def apply_custom_rules(df: pd.DataFrame, custom_rules: list[dict]) -> pd.DataFrame:
+def final_status_per_customer(classified_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Re-classify using a custom rules list.
-    custom_rules: [{"keyword": str, "status": str (internal key), "score": int}, ...]
+    One row per customer = his last visit that carries a REAL status.
+    Customers whose visits are all No Meeting / Unclassified fall back
+    to their last visit row.
     """
-    # Temporarily replace KEYWORD_RULES
-    global KEYWORD_RULES
-    original = KEYWORD_RULES[:]
-    KEYWORD_RULES = custom_rules
-    for rule in KEYWORD_RULES:
-        rule["_norm"] = normalize_arabic(rule["keyword"])
-    result = classify_dataframe(df)
-    KEYWORD_RULES = original
-    return result
+    if classified_df.empty or "Display Status" not in classified_df.columns:
+        return classified_df.copy()
+    df = classified_df.sort_values("Visit Date", ascending=True)
+    real = df[~df["Display Status"].isin(NON_STATUS)]
+    only_non = df[~df["Customer Name"].isin(real["Customer Name"])]
+    combined = pd.concat([real, only_non], ignore_index=True).sort_values("Visit Date")
+    return combined.groupby("Customer Name", as_index=False).tail(1).reset_index(drop=True)

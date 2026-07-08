@@ -12,10 +12,12 @@ import io
 from utils import (
     load_excel, validate_columns, clean_dataframe,
     basic_stats, fmt_number, fmt_pct, STATUS_COLORS, REQUIRED_COLUMNS,
+    deduplicate_customer_names,
 )
 from classification_engine import (
     classify_dataframe, build_customer_journey,
     customers_not_visited, get_rules_dataframe,
+    final_status_per_customer, set_custom_rules,
 )
 from dashboard import (
     customer_analytics_summary, sales_rep_kpi, executive_dashboard_data,
@@ -29,7 +31,8 @@ from storage_manager import (
     load_config, save_config, set_data_dir, get_data_dir,
     has_saved_data, get_saved_metadata, load_session, save_session,
     export_unclassified, import_overrides, clear_overrides, clear_all_data,
-    storage_status, VALID_STATUSES,
+    storage_status, VALID_STATUSES, apply_saved_overrides, apply_name_merges,
+    load_custom_rules, save_custom_rules, load_name_merges, save_name_merges,
 )
 
 # ═══════════════════════════════════════════════════════════════════
@@ -91,12 +94,17 @@ def _init_state():
         "analytics_data": None, "rep_figures": None,
         "file_name": "", "processing_done": False,
         "storage_loaded": False,
+        "date_range": None, "_view_cache": None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
 _init_state()
+
+# Load user-defined keyword rules (from the shared data folder)
+# before any classification happens
+set_custom_rules(load_custom_rules())
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -143,14 +151,78 @@ def rebuild_dashboards():
         st.session_state["rep_figures"] = rep_figs
         st.session_state["analytics_data"] = customer_analytics_summary(classified, journey)
         st.session_state["exec_data"]      = executive_dashboard_data(classified, journey, rep_kpi)
+    st.session_state["_view_cache"] = None  # invalidate the date-filter cache
+
+
+def get_view() -> dict:
+    """
+    All dashboards computed on the active date range (sidebar filter).
+    Cached per range so switching pages doesn't recompute.
+    Full data (no filter) reuses the master session objects.
+    """
+    rng = st.session_state.get("date_range")  # None or (Timestamp, Timestamp)
+    cache = st.session_state.get("_view_cache")
+    if cache is not None and cache.get("rng") == rng:
+        return cache
+
+    master = st.session_state["classified_df"]
+    if rng is None:
+        dfv     = master
+        journey = st.session_state["journey_df"]
+        rep_kpi  = st.session_state["rep_kpi_df"]
+        rep_figs = st.session_state["rep_figures"]
+        if rep_kpi is None or rep_figs is None:
+            rep_kpi, rep_figs = sales_rep_kpi(dfv, journey)
+        analytics = st.session_state["analytics_data"] or customer_analytics_summary(dfv, journey)
+        exec_data = st.session_state["exec_data"] or executive_dashboard_data(dfv, journey, rep_kpi)
+    else:
+        with st.spinner("📅 تطبيق فلتر الفترة..."):
+            d = pd.to_datetime(master["Visit Date"], errors="coerce")
+            dfv = master[(d >= rng[0]) & (d <= rng[1])].copy()
+            journey = build_customer_journey(dfv)
+            rep_kpi, rep_figs = sales_rep_kpi(dfv, journey)
+            analytics = customer_analytics_summary(dfv, journey)
+            exec_data = executive_dashboard_data(dfv, journey, rep_kpi)
+
+    cache = {"rng": rng, "classified": dfv, "journey": journey,
+             "rep_kpi": rep_kpi, "rep_figs": rep_figs,
+             "analytics": analytics, "exec": exec_data}
+    st.session_state["_view_cache"] = cache
+    return cache
+
+
+def reclassify_and_save():
+    """Re-run classification on the loaded data (after rule/merge changes),
+    re-apply manual overrides, rebuild everything and persist."""
+    master = st.session_state["classified_df"]
+    with st.spinner("🧠 إعادة التصنيف..."):
+        reclassified = classify_dataframe(master)
+        reclassified, _ = apply_saved_overrides(reclassified)
+        st.session_state["classified_df"] = reclassified
+    with st.spinner("📖 إعادة بناء رحلة العميل..."):
+        st.session_state["journey_df"] = build_customer_journey(reclassified)
+    rebuild_dashboards()
+    with st.spinner("💾 حفظ..."):
+        save_session(
+            classified_df=st.session_state["classified_df"],
+            journey_df=st.session_state["journey_df"],
+            rep_kpi_df=st.session_state["rep_kpi_df"],
+            file_name=st.session_state.get("file_name", ""),
+        )
 
 
 def run_full_pipeline(raw_df: pd.DataFrame, uploaded_file=None):
     with st.spinner("🔄 تنظيف البيانات..."):
         clean = clean_dataframe(raw_df)
+        clean = apply_name_merges(clean)
         st.session_state["clean_df"] = clean
     with st.spinner("🧠 تصنيف الزيارات..."):
         classified = classify_dataframe(clean)
+        # Re-apply saved manual classifications (matched by visit key,
+        # so they survive re-uploads of updated files)
+        classified, n_overrides = apply_saved_overrides(classified)
+        if n_overrides:
+            st.info(f"✏️ تم تطبيق {n_overrides:,} تصنيف يدوي محفوظ على البيانات الجديدة")
         st.session_state["classified_df"] = classified
     with st.spinner("📖 بناء رحلة العميل..."):
         journey = build_customer_journey(classified)
@@ -226,6 +298,40 @@ with st.sidebar:
         classified_ = st.session_state.get("classified_df")
         journey_    = st.session_state.get("journey_df")
         meta = get_saved_metadata()
+
+        # ── Global date filter (applies to all analytics pages) ──
+        st.markdown("**📅 فلتر الفترة**")
+        _dates = pd.to_datetime(classified_["Visit Date"], errors="coerce").dropna()
+        if not _dates.empty:
+            _dmin, _dmax = _dates.min().date(), _dates.max().date()
+            if "flt_from" not in st.session_state:
+                st.session_state["flt_from"] = _dmin
+            if "flt_to" not in st.session_state:
+                st.session_state["flt_to"] = _dmax
+            st.date_input("من", key="flt_from")
+            st.date_input("إلى", key="flt_to")
+            fc1, fc2 = st.columns(2)
+            with fc1:
+                if st.button("✅ تطبيق", use_container_width=True, key="flt_apply"):
+                    _f = pd.Timestamp(st.session_state["flt_from"])
+                    _t = pd.Timestamp(st.session_state["flt_to"]) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+                    _d = pd.to_datetime(classified_["Visit Date"], errors="coerce")
+                    if ((_d >= _f) & (_d <= _t)).any():
+                        st.session_state["date_range"] = (_f, _t)
+                        st.rerun()
+                    else:
+                        st.error("لا توجد زيارات في هذه الفترة")
+            with fc2:
+                if st.button("🔄 الكل", use_container_width=True, key="flt_reset"):
+                    st.session_state["date_range"] = None
+                    st.rerun()
+            if st.session_state.get("date_range"):
+                _r = st.session_state["date_range"]
+                st.markdown(
+                    f"<div style='background:rgba(255,192,0,.25);padding:6px 10px;border-radius:6px;font-size:12px'>"
+                    f"🔎 الفلتر نشط: {str(_r[0])[:10]} → {str(_r[1])[:10]}</div>",
+                    unsafe_allow_html=True)
+        st.markdown("---")
 
         st.success("✅ البيانات محملة")
         st.markdown(f"""
@@ -350,8 +456,10 @@ elif page == "🧠 Customer Classification":
         no_data_warning()
         st.stop()
 
-    classified_df = st.session_state["classified_df"]
-    journey_df    = st.session_state["journey_df"]
+    view = get_view()
+    classified_df = view["classified"]   # respects the sidebar date filter
+    journey_df    = view["journey"]
+    master_df     = st.session_state["classified_df"]  # full data — used by the override workflow
 
     kpi_row({
         "إجمالي الزيارات":   len(classified_df),
@@ -362,12 +470,13 @@ elif page == "🧠 Customer Classification":
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📋 نتائج التصنيف",
         "🗺️ رحلة العميل",
         "✏️ تصنيف يدوي",
         "⚙️ قواعد الكلمات",
         "📥 تصدير",
+        "🔗 توحيد الأسماء",
     ])
 
     # ── Tab 1: Results ──
@@ -399,10 +508,9 @@ elif page == "🧠 Customer Classification":
         filtered = filtered.merge(visit_counts, on="Customer Name", how="left")
 
         if view_mode == "👤 موقف نهائي لكل عميل":
-            final_df = (
-                filtered.sort_values("Visit Date", ascending=True)
-                .groupby("Customer Name", as_index=False).last()
-            )
+            # Last REAL status per customer (No Meeting / Unclassified visits
+            # don't overwrite the customer's previous classification)
+            final_df = final_status_per_customer(filtered)
             date_range = classified_df.groupby("Customer Name")["Visit Date"].agg(
                 First_Visit="min", Last_Visit="max"
             ).reset_index()
@@ -480,8 +588,8 @@ elif page == "🧠 Customer Classification":
     with tab3:
         section("✏️ التصنيف اليدوي للزيارات غير المصنفة")
 
-        unclass_count = int((classified_df["Display Status"] == "Unclassified").sum())
-        manual_count  = int((classified_df.get("Override Source","") == "Manual").sum()) if "Override Source" in classified_df.columns else 0
+        unclass_count = int((master_df["Display Status"] == "Unclassified").sum())
+        manual_count  = int((master_df.get("Override Source","") == "Manual").sum()) if "Override Source" in master_df.columns else 0
 
         m1, m2, m3 = st.columns(3)
         m1.metric("غير مصنف",        unclass_count)
@@ -496,7 +604,7 @@ elif page == "🧠 Customer Classification":
             st.success("✅ لا توجد زيارات غير مصنفة!")
         else:
             st.info(f"يوجد **{unclass_count:,}** زيارة غير مصنفة — حمّل الملف وأضف التصنيف في عمود **Manual Status**")
-            xlsx_unc = export_unclassified(classified_df)
+            xlsx_unc = export_unclassified(master_df)
             st.download_button(
                 f"⬇️ تحميل الزيارات الغير مصنفة ({unclass_count:,} زيارة)",
                 data=xlsx_unc,
@@ -527,7 +635,7 @@ elif page == "🧠 Customer Classification":
             with col_confirm:
                 if st.button("✅ تأكيد وتطبيق التصنيف", use_container_width=True):
                     updated_df, count_changed, errors = import_overrides(
-                        override_file, classified_df
+                        override_file, master_df
                     )
 
                     if errors:
@@ -567,8 +675,8 @@ elif page == "🧠 Customer Classification":
         # ── Overrides history ──
         st.markdown("---")
         st.markdown("#### 📋 سجل التصنيفات اليدوية")
-        if "Override Source" in classified_df.columns:
-            manual_df = classified_df[classified_df["Override Source"] == "Manual"]
+        if "Override Source" in master_df.columns:
+            manual_df = master_df[master_df["Override Source"] == "Manual"]
             if not manual_df.empty:
                 show_o = ["Visit Date","Customer Name","Sales Rep Name","Display Status","Governorate","Visit Notes"]
                 show_o = [c for c in show_o if c in manual_df.columns]
@@ -592,6 +700,59 @@ elif page == "🧠 Customer Classification":
     # ── Tab 4: Keyword Rules ──
     with tab4:
         section("قواعد الكلمات المفتاحية")
+
+        # ── Custom rules editor ──
+        _STATUS_AR = {
+            "current": "عميل حالي", "potential": "عميل محتمل", "target": "عميل مستهدف",
+            "new": "عميل جديد", "former": "عميل سابق",
+            "not_interested": "غير مهتم", "no_meeting": "لم تتم المقابلة",
+        }
+        custom_rules = load_custom_rules()
+
+        with st.expander(f"➕ إضافة / إدارة القواعد المخصصة ({len(custom_rules)} قاعدة مخصصة)", expanded=False):
+            with st.form("add_rule_form", clear_on_submit=True):
+                rc1, rc2, rc3 = st.columns([2, 1, 1])
+                new_kw     = rc1.text_input("الكلمة / العبارة المفتاحية")
+                new_status = rc2.selectbox("تُصنَّف كـ", list(_STATUS_AR.keys()),
+                                           format_func=lambda k: _STATUS_AR[k])
+                new_score  = rc3.number_input("الدرجة", min_value=10, max_value=100, value=60, step=10)
+                if st.form_submit_button("➕ إضافة القاعدة", use_container_width=True):
+                    if new_kw.strip():
+                        custom_rules.append({"keyword": new_kw.strip(),
+                                             "status": new_status, "score": int(new_score)})
+                        ok, msg = save_custom_rules(custom_rules)
+                        if ok:
+                            set_custom_rules(custom_rules)
+                            st.success(f"{msg} — اضغط (إعادة التصنيف) بالأسفل لتطبيقها على البيانات")
+                        else:
+                            st.error(msg)
+                    else:
+                        st.warning("اكتب الكلمة المفتاحية أولاً")
+
+            if custom_rules:
+                del_kws = st.multiselect(
+                    "🗑️ اختر قواعد مخصصة للحذف",
+                    [f"{r['keyword']} → {_STATUS_AR.get(r['status'], r['status'])} ({r['score']})"
+                     for r in custom_rules],
+                    key="del_rules",
+                )
+                if del_kws and st.button("🗑️ حذف المحدد", key="del_rules_btn"):
+                    labels = [f"{r['keyword']} → {_STATUS_AR.get(r['status'], r['status'])} ({r['score']})"
+                              for r in custom_rules]
+                    remaining = [r for r, lbl in zip(custom_rules, labels) if lbl not in del_kws]
+                    ok, msg = save_custom_rules(remaining)
+                    if ok:
+                        set_custom_rules(remaining)
+                        st.success(f"{msg} — اضغط (إعادة التصنيف) لتطبيق التغيير")
+                        st.rerun()
+                    else:
+                        st.error(msg)
+
+            if st.button("🔁 إعادة التصنيف بالقواعد الحالية وحفظ النتائج", use_container_width=True, key="reclassify_btn"):
+                reclassify_and_save()
+                st.success("✅ تمت إعادة التصنيف والحفظ — كل الصفحات تحدّثت")
+                st.rerun()
+
         t3c1, t3c2 = st.columns([1,1])
 
         with t3c1:
@@ -648,6 +809,94 @@ elif page == "🧠 Customer Classification":
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                            use_container_width=True)
 
+    # ── Tab 6: Name Unification Review ──
+    with tab6:
+        section("🔗 مراجعة وتوحيد أسماء العملاء المتشابهة")
+        st.markdown("""
+        الأسماء تُقارن **داخل نفس المحافظة فقط** — الاسم المتشابه في محافظة مختلفة يُعتبر عميلاً آخر.
+        لا يتم أي دمج تلقائي: كل مجموعة تحتاج **موافقتك** هنا، ويمكن التراجع عن أي دمج لاحقاً.
+        """)
+
+        tmp = deduplicate_customer_names(master_df)
+        if "Governorate" not in tmp.columns:
+            tmp["Governorate"] = ""
+        grp = (tmp.groupby(["Customer Name Cleaned", "Governorate"]).agg(
+                    Variants=("Customer Name", lambda x: sorted(set(x))),
+                    Visits=("Customer Name", "count"),
+               ).reset_index())
+        cand = grp[(grp["Variants"].apply(len) > 1) & (grp["Customer Name Cleaned"] != "")]
+
+        merges = load_name_merges()
+        mc1, mc2, mc3 = st.columns(3)
+        mc1.metric("مجموعات مقترحة للمراجعة", len(cand))
+        mc2.metric("دمج معتمد", merges["Canonical"].nunique() if not merges.empty else 0)
+        mc3.metric("أسماء موحّدة", len(merges))
+
+        if cand.empty:
+            st.success("✅ لا توجد أسماء متشابهة تحتاج مراجعة داخل نفس المحافظة")
+        else:
+            cand = cand.copy()
+            cand["_label"] = cand.apply(
+                lambda r: f"{r['Customer Name Cleaned']} — {r['Governorate'] or 'بدون محافظة'} ({len(r['Variants'])} اسم)",
+                axis=1)
+            sel_grp = st.selectbox("اختر مجموعة للمراجعة", cand["_label"].tolist(), key="merge_grp")
+            row = cand[cand["_label"] == sel_grp].iloc[0]
+
+            # Visit counts per variant
+            variant_counts = (master_df[master_df["Customer Name"].isin(row["Variants"])]
+                              .groupby("Customer Name").size().rename("عدد الزيارات").reset_index())
+            st.dataframe(variant_counts, use_container_width=True, hide_index=True)
+
+            canonical = st.radio("الاسم الموحّد (الذي ستُنسب إليه كل الزيارات)",
+                                 row["Variants"], key="merge_canon")
+            if st.button("✅ اعتماد الدمج", use_container_width=True, key="merge_apply"):
+                new_rows = pd.DataFrame([
+                    {"Governorate": row["Governorate"], "Variant": v, "Canonical": canonical}
+                    for v in row["Variants"] if v != canonical
+                ])
+                combined = pd.concat([merges, new_rows], ignore_index=True)
+                combined = combined.drop_duplicates(subset=["Governorate", "Variant"], keep="last")
+                ok, msg = save_name_merges(combined)
+                if ok:
+                    st.session_state["classified_df"] = apply_name_merges(st.session_state["classified_df"])
+                    st.session_state["journey_df"] = build_customer_journey(st.session_state["classified_df"])
+                    rebuild_dashboards()
+                    save_session(
+                        classified_df=st.session_state["classified_df"],
+                        journey_df=st.session_state["journey_df"],
+                        rep_kpi_df=st.session_state["rep_kpi_df"],
+                        file_name=st.session_state.get("file_name", ""),
+                    )
+                    st.success(f"✅ تم دمج {len(new_rows)} اسم في «{canonical}» وحفظ البيانات")
+                    st.rerun()
+                else:
+                    st.error(msg)
+
+        # ── Approved merges + undo ──
+        if not merges.empty:
+            st.markdown("---")
+            st.markdown("#### 📋 عمليات الدمج المعتمدة")
+            st.dataframe(merges.reset_index(drop=True), use_container_width=True, hide_index=True, height=260)
+            undo_canons = st.multiselect("↩️ اختر أسماء موحّدة للتراجع عن دمجها",
+                                         sorted(merges["Canonical"].unique().tolist()), key="undo_merges")
+            if undo_canons and st.button("↩️ تراجع عن الدمج المحدد", key="undo_btn"):
+                remaining = merges[~merges["Canonical"].isin(undo_canons)]
+                ok, msg = save_name_merges(remaining)
+                if ok:
+                    st.session_state["classified_df"] = apply_name_merges(st.session_state["classified_df"])
+                    st.session_state["journey_df"] = build_customer_journey(st.session_state["classified_df"])
+                    rebuild_dashboards()
+                    save_session(
+                        classified_df=st.session_state["classified_df"],
+                        journey_df=st.session_state["journey_df"],
+                        rep_kpi_df=st.session_state["rep_kpi_df"],
+                        file_name=st.session_state.get("file_name", ""),
+                    )
+                    st.success("✅ تم التراجع واستعادة الأسماء الأصلية")
+                    st.rerun()
+                else:
+                    st.error(msg)
+
 
 # ═══════════════════════════════════════════════════════════════════
 # PAGE 3 — CUSTOMER ANALYTICS
@@ -659,8 +908,9 @@ elif page == "👥 Customer Analytics":
     if not st.session_state["processing_done"]:
         no_data_warning(); st.stop()
 
-    analytics  = st.session_state["analytics_data"]
-    journey_df = st.session_state["journey_df"]
+    view = get_view()
+    analytics  = view["analytics"]
+    journey_df = view["journey"]
     kpis = analytics["kpi"]
 
     kpi_row({k:v for k,v in list(kpis.items())[:4]}, cols_per_row=4)
@@ -734,9 +984,10 @@ elif page == "🏆 Sales Rep Performance":
     if not st.session_state["processing_done"]:
         no_data_warning(); st.stop()
 
-    rep_kpi_df  = st.session_state["rep_kpi_df"]
-    rep_figures = st.session_state["rep_figures"]
-    classified  = st.session_state["classified_df"]
+    view = get_view()
+    rep_kpi_df  = view["rep_kpi"]
+    rep_figures = view["rep_figs"]
+    classified  = view["classified"]
 
     if rep_kpi_df is None or rep_kpi_df.empty:
         st.warning("لا توجد بيانات مندوبين"); st.stop()
@@ -744,13 +995,19 @@ elif page == "🏆 Sales Rep Performance":
     kpi_row({
         "عدد المندوبين":       len(rep_kpi_df),
         "إجمالي الزيارات":    int(rep_kpi_df["Total Visits"].sum()),
-        "إجمالي العملاء":     int(rep_kpi_df["Unique Customers"].sum()),
+        # nunique on the full data — summing per-rep counts double-counts
+        # customers visited by more than one rep
+        "إجمالي العملاء":     int(classified["Customer Name"].nunique()),
         "متوسط التحويل":      f"{rep_kpi_df['Conversion Rate (%)'].mean():.1f}%",
     })
     st.markdown("<br>", unsafe_allow_html=True)
 
     section("جدول KPIs")
     st.info(f"🥇 أفضل مندوب: **{rep_kpi_df.iloc[0]['Sales Rep Name']}** — {fmt_number(rep_kpi_df.iloc[0]['Total Visits'])} زيارة")
+    if "True Conversions" in rep_kpi_df.columns:
+        best_conv = rep_kpi_df.sort_values("True Conversions", ascending=False).iloc[0]
+        if best_conv["True Conversions"] > 0:
+            st.success(f"⭐ أكثر مندوب تحويلاً لعملاء حاليين: **{best_conv['Sales Rep Name']}** — {int(best_conv['True Conversions'])} عميل تحوّل فعلياً")
     st.dataframe(rep_kpi_df.reset_index(drop=True), use_container_width=True, height=420)
 
     section("المخططات")
@@ -821,9 +1078,10 @@ elif page == "🏢 Executive Dashboard":
     if not st.session_state["processing_done"]:
         no_data_warning(); st.stop()
 
-    exec_data  = st.session_state["exec_data"]
-    journey_df = st.session_state["journey_df"]
-    rep_kpi_df = st.session_state["rep_kpi_df"]
+    view = get_view()
+    exec_data  = view["exec"]
+    journey_df = view["journey"]
+    rep_kpi_df = view["rep_kpi"]
     kpis = exec_data.get("kpis", {})
     kpi_items = list(kpis.items())
 
@@ -864,6 +1122,55 @@ elif page == "🏢 Executive Dashboard":
     if not fu_df.empty:
         st.error(f"🚨 {len(fu_df)} عميل يحتاج متابعة")
         st.dataframe(fu_df, use_container_width=True, height=320)
+
+    # ── Funnel: customer transitions ──
+    funnel = exec_data.get("funnel", {})
+    section("🔄 تحوّلات العملاء (Funnel)")
+    conv_df  = funnel.get("conversions", pd.DataFrame())
+    churn_df = funnel.get("churn", pd.DataFrame())
+    trans_df = funnel.get("transitions", pd.DataFrame())
+
+    fk1, fk2, fk3, fk4 = st.columns(4)
+    fk1.metric("إجمالي التحوّلات", fmt_number(len(trans_df)))
+    fk2.metric("تحوّلوا إلى عميل حالي", fmt_number(len(conv_df)))
+    avg_days = conv_df["Days To Convert"].mean() if ("Days To Convert" in conv_df.columns and not conv_df.empty) else None
+    fk3.metric("متوسط أيام التحويل", f"{avg_days:.0f} يوم" if pd.notnull(avg_days) else "—")
+    fk4.metric("عملاء متسربون", fmt_number(len(churn_df)))
+
+    if not trans_df.empty:
+        fc1, fc2 = st.columns(2)
+        with fc1:
+            st.markdown("**مصفوفة التحوّل (من ← إلى) — عدد التحوّلات**")
+            st.dataframe(funnel.get("matrix", pd.DataFrame()), use_container_width=True)
+        with fc2:
+            if funnel.get("fig_rep_conversions") is not None:
+                st.plotly_chart(funnel["fig_rep_conversions"], use_container_width=True)
+
+        if not conv_df.empty:
+            with st.expander(f"👀 تفاصيل العملاء المتحوّلين إلى (حالي) — {len(conv_df):,} عميل"):
+                show_conv = conv_df.copy()
+                for dc in ["Transition Date", "First Visit Date"]:
+                    if dc in show_conv.columns:
+                        show_conv[dc] = pd.to_datetime(show_conv[dc], errors="coerce").dt.strftime("%Y-%m-%d")
+                st.dataframe(show_conv, use_container_width=True, height=320)
+
+    # ── Churn: rescue list ──
+    section("📉 عملاء متسربون (كانوا حاليين وتوقفوا)")
+    if churn_df.empty:
+        st.success("✅ لا يوجد عملاء متسربون")
+    else:
+        st.error(f"🚨 {len(churn_df)} عميل كان يتعامل معنا وآخر حالته الآن (سابق / غير مهتم) — قائمة إنقاذ")
+        show_churn = churn_df.copy()
+        if "Last Visit Date" in show_churn.columns:
+            show_churn["Last Visit Date"] = pd.to_datetime(show_churn["Last Visit Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+        st.dataframe(show_churn, use_container_width=True, height=320)
+        out_churn = io.BytesIO()
+        with pd.ExcelWriter(out_churn, engine="openpyxl") as w:
+            show_churn.to_excel(w, index=False, sheet_name="Churned Customers")
+        st.download_button("⬇️ تصدير قائمة المتسربين Excel",
+                           data=out_churn.getvalue(),
+                           file_name="Churned_Customers.xlsx",
+                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     section("تصدير")
     e1,e2 = st.columns(2)

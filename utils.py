@@ -42,7 +42,7 @@ STATUS_LABELS = {
     "current": "Current Customer", "potential": "Potential Customer",
     "target": "Target Customer", "new": "New Customer",
     "former": "Former Customer", "not_interested": "Not Interested",
-    "unclassified": "Unclassified",
+    "no_meeting": "No Meeting", "unclassified": "Unclassified",
 }
 
 STATUS_COLORS = {
@@ -52,8 +52,13 @@ STATUS_COLORS = {
     "New Customer":       "#1F4E79",
     "Former Customer":    "#A9A9A9",
     "Not Interested":     "#C00000",
+    "No Meeting":         "#8497B0",
     "Unclassified":       "#D9D9D9",
 }
+
+# Visit statuses that do NOT represent a real customer position —
+# they must never overwrite the customer's last real classification.
+NON_STATUS_LABELS = {"No Meeting", "Unclassified"}
 
 # ═══════════════════════════════════════════════════════════════════
 # BASIC HELPERS  (must come first — used by everything below)

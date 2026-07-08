@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 
-from utils import safe_str, days_since, STATUS_COLORS
+from utils import safe_str, days_since, STATUS_COLORS, NON_STATUS_LABELS
 
 # Brand palette
 PRIMARY   = "#1F4E79"
@@ -150,6 +150,116 @@ def customer_analytics_summary(classified_df: pd.DataFrame, journey_df: pd.DataF
 
 
 # ═══════════════════════════════════════════════════════════════════
+# CUSTOMER TRANSITIONS (FUNNEL)
+# ═══════════════════════════════════════════════════════════════════
+
+def customer_transitions(classified_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Ordered real-status changes per customer, visit by visit.
+    No Meeting / Unclassified visits are ignored — they don't represent
+    a change in the customer's position.
+    """
+    if classified_df.empty or "Display Status" not in classified_df.columns:
+        return pd.DataFrame()
+
+    df = classified_df[~classified_df["Display Status"].isin(NON_STATUS_LABELS)]
+    df = df.sort_values("Visit Date")
+
+    recs = []
+    for cust, g in df.groupby("Customer Name", sort=False):
+        statuses = g["Display Status"].tolist()
+        dates    = g["Visit Date"].tolist()
+        reps     = g["Sales Rep Name"].tolist() if "Sales Rep Name" in g.columns else [""] * len(g)
+        govs     = g["Governorate"].tolist()    if "Governorate"    in g.columns else [""] * len(g)
+        prev = statuses[0]
+        for i in range(1, len(statuses)):
+            if statuses[i] != prev:
+                recs.append({
+                    "Customer Name":   cust,
+                    "From Status":     prev,
+                    "To Status":       statuses[i],
+                    "Transition Date": dates[i],
+                    "Sales Rep Name":  reps[i],
+                    "Governorate":     govs[i],
+                })
+                prev = statuses[i]
+    return pd.DataFrame(recs)
+
+
+def funnel_data(classified_df: pd.DataFrame, journey_df: pd.DataFrame) -> dict:
+    """
+    Funnel analytics:
+      - transitions:  all status changes
+      - matrix:       From × To counts
+      - conversions:  first transition of each customer INTO Current Customer
+      - churn:        customers who were Current and whose latest status is
+                      Former / Not Interested (قائمة إنقاذ)
+      - rep_conversions + fig
+    """
+    out = {"transitions": pd.DataFrame(), "matrix": pd.DataFrame(),
+           "conversions": pd.DataFrame(), "churn": pd.DataFrame(),
+           "rep_conversions": pd.DataFrame(), "fig_rep_conversions": None}
+
+    trans = customer_transitions(classified_df)
+    out["transitions"] = trans
+
+    # ── Churn (independent of transitions) ──
+    if not journey_df.empty:
+        was_current = set(
+            classified_df.loc[classified_df["Display Status"] == "Current Customer", "Customer Name"]
+        )
+        churn = journey_df[
+            journey_df["Customer Name"].isin(was_current)
+            & journey_df["Latest Status"].isin(["Former Customer", "Not Interested"])
+        ]
+        cols = [c for c in ["Customer Name", "Latest Status", "Last Visit Date",
+                            "Days Since Last Visit", "Governorate", "Sales Rep Name"]
+                if c in churn.columns]
+        out["churn"] = (churn[cols]
+                        .sort_values("Days Since Last Visit", ascending=False)
+                        .reset_index(drop=True))
+
+    if trans.empty:
+        return out
+
+    # ── From × To matrix ──
+    out["matrix"] = trans.pivot_table(
+        index="From Status", columns="To Status",
+        values="Customer Name", aggfunc="count", fill_value=0,
+    )
+
+    # ── Conversions into Current (first one per customer) ──
+    conv = (trans[trans["To Status"] == "Current Customer"]
+            .sort_values("Transition Date")
+            .groupby("Customer Name", as_index=False).head(1).copy())
+    if not conv.empty and not journey_df.empty and "First Visit Date" in journey_df.columns:
+        conv = conv.merge(journey_df[["Customer Name", "First Visit Date"]],
+                          on="Customer Name", how="left")
+        conv["Days To Convert"] = (
+            pd.to_datetime(conv["Transition Date"], errors="coerce")
+            - pd.to_datetime(conv["First Visit Date"], errors="coerce")
+        ).dt.days
+    out["conversions"] = conv.reset_index(drop=True)
+
+    # ── Conversions per rep ──
+    if not conv.empty:
+        rep_conv = (conv.groupby("Sales Rep Name").size()
+                    .reset_index(name="Conversions")
+                    .sort_values("Conversions", ascending=True))
+        out["rep_conversions"] = rep_conv
+        fig = px.bar(
+            rep_conv, x="Conversions", y="Sales Rep Name", orientation="h",
+            color_discrete_sequence=[ACCENT], template=PLOTLY_TEMPLATE,
+            title="عملاء تحولوا إلى (حالي) على يد كل مندوب", text="Conversions",
+        )
+        fig.update_traces(textposition="outside")
+        fig.update_layout(paper_bgcolor=BG, margin=dict(l=20, r=40, t=50, b=20))
+        out["fig_rep_conversions"] = fig
+
+    return out
+
+
+# ═══════════════════════════════════════════════════════════════════
 # PAGE 4 — SALES REP PERFORMANCE
 # ═══════════════════════════════════════════════════════════════════
 
@@ -164,14 +274,28 @@ def sales_rep_kpi(classified_df: pd.DataFrame, journey_df: pd.DataFrame) -> tupl
     records = []
     today = pd.Timestamp(datetime.today().date())
 
+    # True conversions: customers whose status CHANGED to Current during
+    # a visit by this rep (attribution to the converting visit's rep)
+    trans = customer_transitions(classified_df)
+    if not trans.empty:
+        conv_by_rep = (trans[trans["To Status"] == "Current Customer"]
+                       .sort_values("Transition Date")
+                       .groupby("Customer Name", as_index=False).head(1)
+                       .groupby("Sales Rep Name").size())
+    else:
+        conv_by_rep = pd.Series(dtype=int)
+
     for rep_name, grp in classified_df.groupby("Sales Rep Name"):
         total_visits     = len(grp)
         unique_customers = grp["Customer Name"].nunique()
 
-        # Customers acquired as Current in this rep's visits
-        current_acq  = int((grp["Display Status"] == "Current Customer").sum())
-        new_acq      = int((grp["Display Status"] == "New Customer").sum())
-        potential    = int((grp["Display Status"] == "Potential Customer").sum())
+        # Count CUSTOMERS (not visits) by their final real status with this rep —
+        # a current customer visited 5 times used to count as 5.
+        real = grp[~grp["Display Status"].isin(NON_STATUS_LABELS)]
+        last_real = real.sort_values("Visit Date").groupby("Customer Name").tail(1)
+        current_acq  = int((last_real["Display Status"] == "Current Customer").sum())
+        new_acq      = int((last_real["Display Status"] == "New Customer").sum())
+        potential    = int((last_real["Display Status"] == "Potential Customer").sum())
 
         # Visit days span
         dates = grp["Visit Date"].dropna()
@@ -196,6 +320,7 @@ def sales_rep_kpi(classified_df: pd.DataFrame, journey_df: pd.DataFrame) -> tupl
             "Current Customers":       current_acq,
             "New Customers":           new_acq,
             "Potential Customers":     potential,
+            "True Conversions":        int(conv_by_rep.get(rep_name, 0)),
             "Visits Per Day":          visits_per_day,
             "Visits Per Month":        visits_per_month,
             "Conversion Rate (%)":     conversion_rate,
@@ -467,5 +592,8 @@ def executive_dashboard_data(
         result["followup_df"] = fu
     else:
         result["followup_df"] = pd.DataFrame()
+
+    # ── Funnel: transitions, conversions, churn ──
+    result["funnel"] = funnel_data(classified_df, journey_df)
 
     return result

@@ -5,11 +5,16 @@
 
 import os
 import json
+import time
 import shutil
+import hashlib
 import pandas as pd
 import numpy as np
 from datetime import datetime
 from pathlib import Path
+from contextlib import contextmanager
+
+from utils import normalize_arabic, safe_str
 
 # ═══════════════════════════════════════════════════════════════════
 # CONFIG FILE — stores the shared folder path
@@ -89,13 +94,51 @@ def _paths() -> dict:
     """Return all data file paths based on current data_dir."""
     d = get_data_dir()
     return {
-        "metadata":    d / "metadata.json",
-        "classified":  d / "classified_data.parquet",
-        "journey":     d / "journey_data.parquet",
-        "rep_kpi":     d / "rep_kpi_data.parquet",
-        "overrides":   d / "overrides.parquet",
-        "raw_backup":  d / "last_upload.xlsx",
+        "metadata":     d / "metadata.json",
+        "classified":   d / "classified_data.parquet",
+        "journey":      d / "journey_data.parquet",
+        "rep_kpi":      d / "rep_kpi_data.parquet",
+        "overrides":    d / "overrides.parquet",
+        "raw_backup":   d / "last_upload.xlsx",
+        "custom_rules": d / "custom_rules.json",
+        "name_merges":  d / "name_merges.parquet",
     }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# WRITE LOCK — prevents two users on the shared folder from saving
+# at the same moment and corrupting the parquet files
+# ═══════════════════════════════════════════════════════════════════
+
+@contextmanager
+def _write_lock(timeout: float = 10.0):
+    lock = get_data_dir() / ".wdi_lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    start = time.time()
+    while True:
+        try:
+            fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode())
+            os.close(fd)
+            break
+        except FileExistsError:
+            # A lock older than 60s is considered stale (crashed process)
+            try:
+                if time.time() - lock.stat().st_mtime > 60:
+                    lock.unlink(missing_ok=True)
+                    continue
+            except OSError:
+                pass
+            if time.time() - start > timeout:
+                raise TimeoutError("مستخدم آخر يقوم بالحفظ الآن — حاول بعد لحظات")
+            time.sleep(0.3)
+    try:
+        yield
+    finally:
+        try:
+            lock.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -117,8 +160,10 @@ def _save_metadata(meta: dict):
     paths = _paths()
     paths["metadata"].parent.mkdir(parents=True, exist_ok=True)
     meta["last_saved"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with open(paths["metadata"], "w", encoding="utf-8") as f:
+    tmp = paths["metadata"].with_name("metadata.json.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, paths["metadata"])
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -141,39 +186,41 @@ def save_session(
         data_dir = get_data_dir()
         data_dir.mkdir(parents=True, exist_ok=True)
 
-        # ── Save classified data ──
-        _df_to_parquet(classified_df, paths["classified"])
+        with _write_lock():
+            # ── Save classified data ──
+            _df_to_parquet(classified_df, paths["classified"])
 
-        # ── Save journey data (drop internal columns) ──
-        journey_save = journey_df.copy()
-        if "_journey" in journey_save.columns:
-            journey_save = journey_save.drop(columns=["_journey"])
-        _df_to_parquet(journey_save, paths["journey"])
+            # ── Save journey data (drop internal columns) ──
+            journey_save = journey_df.copy()
+            if "_journey" in journey_save.columns:
+                journey_save = journey_save.drop(columns=["_journey"])
+            _df_to_parquet(journey_save, paths["journey"])
 
-        # ── Save rep KPI ──
-        if rep_kpi_df is not None and not rep_kpi_df.empty:
-            _df_to_parquet(rep_kpi_df, paths["rep_kpi"])
+            # ── Save rep KPI ──
+            if rep_kpi_df is not None and not rep_kpi_df.empty:
+                _df_to_parquet(rep_kpi_df, paths["rep_kpi"])
 
-        # ── Save raw file backup ──
-        if uploaded_file is not None:
-            try:
-                uploaded_file.seek(0)
-                with open(paths["raw_backup"], "wb") as f:
-                    f.write(uploaded_file.read())
-            except Exception:
-                pass
+            # ── Save raw file backup ──
+            if uploaded_file is not None:
+                try:
+                    uploaded_file.seek(0)
+                    with open(paths["raw_backup"], "wb") as f:
+                        f.write(uploaded_file.read())
+                except Exception:
+                    pass
 
-        # ── Save metadata ──
-        meta = {
-            "file_name":       file_name,
-            "total_records":   len(classified_df),
-            "unique_customers":classified_df["Customer Name"].nunique() if "Customer Name" in classified_df.columns else 0,
-            "unique_reps":     classified_df["Sales Rep Name"].nunique() if "Sales Rep Name" in classified_df.columns else 0,
-            "date_range_start":str(classified_df["Visit Date"].min())[:10] if "Visit Date" in classified_df.columns else "",
-            "date_range_end":  str(classified_df["Visit Date"].max())[:10] if "Visit Date" in classified_df.columns else "",
-            "override_count":  0,
-        }
-        _save_metadata(meta)
+            # ── Save metadata (keep existing override count) ──
+            meta = _load_metadata()
+            meta.update({
+                "file_name":       file_name,
+                "total_records":   len(classified_df),
+                "unique_customers":classified_df["Customer Name"].nunique() if "Customer Name" in classified_df.columns else 0,
+                "unique_reps":     classified_df["Sales Rep Name"].nunique() if "Sales Rep Name" in classified_df.columns else 0,
+                "date_range_start":str(classified_df["Visit Date"].min())[:10] if "Visit Date" in classified_df.columns else "",
+                "date_range_end":  str(classified_df["Visit Date"].max())[:10] if "Visit Date" in classified_df.columns else "",
+            })
+            meta.setdefault("override_count", 0)
+            _save_metadata(meta)
 
         return True, "✅ تم حفظ البيانات بنجاح"
     except Exception as e:
@@ -197,12 +244,18 @@ def load_session() -> tuple[bool, dict]:
             return False, {}
 
         classified_df = _parquet_to_df(paths["classified"])
-        journey_df    = _parquet_to_df(paths["journey"]) if paths["journey"].exists() else pd.DataFrame()
         rep_kpi_df    = _parquet_to_df(paths["rep_kpi"]) if paths["rep_kpi"].exists() else pd.DataFrame()
         metadata      = _load_metadata()
 
-        # Apply any saved overrides
+        # Apply saved name merges, then saved overrides
+        classified_df = apply_name_merges(classified_df)
         classified_df, override_count = _apply_saved_overrides(classified_df)
+
+        # Rebuild the journey instead of loading the stale saved copy:
+        # "Days Since Last Visit" was frozen at save time, and overrides/merges
+        # may have changed customer statuses since.
+        from classification_engine import build_customer_journey
+        journey_df = build_customer_journey(classified_df)
 
         return True, {
             "classified_df": classified_df,
@@ -213,6 +266,12 @@ def load_session() -> tuple[bool, dict]:
         }
     except Exception as e:
         return False, {"error": str(e)}
+
+
+def apply_saved_overrides(classified_df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Public wrapper — used by the upload pipeline so manual classifications
+    survive a new file upload without waiting for an app restart."""
+    return _apply_saved_overrides(classified_df)
 
 
 def has_saved_data() -> bool:
@@ -236,7 +295,48 @@ VALID_STATUSES = [
     "New Customer",
     "Former Customer",
     "Not Interested",
+    "No Meeting",
 ]
+
+
+# ═══════════════════════════════════════════════════════════════════
+# STABLE OVERRIDE KEY
+# Overrides used to be stored by row number, which silently applied
+# old classifications to the wrong rows after a new file upload.
+# The key below identifies the VISIT itself, so overrides survive
+# re-uploads correctly.
+# ═══════════════════════════════════════════════════════════════════
+
+def _visit_key(customer, visit_date, rep, note) -> str:
+    d = str(pd.to_datetime(visit_date, errors="coerce"))[:10]
+    base = "|".join([
+        normalize_arabic(safe_str(customer)),
+        d,
+        normalize_arabic(safe_str(rep)),
+        normalize_arabic(safe_str(note))[:60],
+    ])
+    return hashlib.md5(base.encode("utf-8")).hexdigest()
+
+
+def _visit_key_series(df: pd.DataFrame) -> pd.Series:
+    """
+    Key computation for a classified DataFrame.
+    Uses the ORIGINAL customer name when available so that approved name
+    merges never break saved manual classifications.
+    """
+    if "Customer Name Original" in df.columns:
+        orig = df["Customer Name Original"].fillna("").astype(str)
+        disp = df["Customer Name"].astype(str) if "Customer Name" in df.columns else orig
+        cust = np.where(orig != "", orig, disp)
+    else:
+        cust = df["Customer Name"] if "Customer Name" in df.columns else [""] * len(df)
+    date = df["Visit Date"]     if "Visit Date"     in df.columns else [""] * len(df)
+    rep  = df["Sales Rep Name"] if "Sales Rep Name" in df.columns else [""] * len(df)
+    note = df["Visit Notes"]    if "Visit Notes"    in df.columns else [""] * len(df)
+    return pd.Series(
+        [_visit_key(c, d, r, n) for c, d, r, n in zip(cust, date, rep, note)],
+        index=df.index,
+    )
 
 
 def export_unclassified(classified_df: pd.DataFrame) -> bytes:
@@ -253,9 +353,11 @@ def export_unclassified(classified_df: pd.DataFrame) -> bytes:
     unclass = classified_df[mask].copy()
     unclass.insert(0, "Row Number", unclass.index)
 
-    # Select display columns
+    # Select display columns ("Customer Name Original" keeps the override
+    # key stable even after approved name merges)
     show_cols = ["Row Number", "Visit Date", "Customer Name", "Sales Rep Name",
-                 "Governorate", "District", "Visit Notes", "Display Status"]
+                 "Governorate", "District", "Visit Notes", "Display Status",
+                 "Customer Name Original"]
     show_cols = [c for c in show_cols if c in unclass.columns]
     unclass = unclass[show_cols].copy()
 
@@ -370,7 +472,7 @@ def import_overrides(
     for _, row in override_df.iterrows():
         status = str(row["Manual Status"]).strip()
         if status not in VALID_STATUSES:
-            invalid_rows.append(f"صف {row['Row Number']}: قيمة غير معروفة '{status}'")
+            invalid_rows.append(f"صف {row.get('Row Number', '?')}: قيمة غير معروفة '{status}'")
 
     if invalid_rows:
         errors.extend(invalid_rows[:10])  # Show max 10 errors
@@ -379,28 +481,50 @@ def import_overrides(
             override_df["Manual Status"].astype(str).str.strip().isin(VALID_STATUSES)
         ]
 
-    # Apply overrides to classified_df
+    # Build stable keys from the override file's own columns
+    # (the export always contains Customer Name / Visit Date / Sales Rep Name / Visit Notes)
+    key_cols = ["Customer Name", "Visit Date", "Sales Rep Name", "Visit Notes"]
+    missing_key_cols = [c for c in key_cols if c not in override_df.columns]
+    if missing_key_cols:
+        return classified_df, 0, [f"❌ أعمدة ناقصة في الملف: {', '.join(missing_key_cols)}"]
+
+    override_df = override_df.copy()
+    override_df["_key"] = _visit_key_series(override_df)
+
+    # Map keys → row positions in classified_df
     updated_df = classified_df.copy()
+    data_keys = _visit_key_series(updated_df)
+    key_to_idx: dict = {}
+    for idx, k in data_keys.items():
+        key_to_idx.setdefault(k, []).append(idx)
+
     count_changed = 0
-
+    applied_rows = []
     for _, row in override_df.iterrows():
-        row_num = int(row["Row Number"])
         new_status = str(row["Manual Status"]).strip()
-
-        if row_num not in updated_df.index:
-            errors.append(f"⚠️ رقم الصف {row_num} غير موجود في البيانات")
+        indices = key_to_idx.get(row["_key"], [])
+        if not indices:
+            errors.append(
+                f"⚠️ زيارة غير موجودة في البيانات: {safe_str(row.get('Customer Name'))} — {str(row.get('Visit Date'))[:10]}"
+            )
             continue
-
-        # Apply the override
-        updated_df.at[row_num, "Display Status"]   = new_status
-        updated_df.at[row_num, "Suggested Status"]  = _display_to_internal(new_status)
-        updated_df.at[row_num, "Override Source"]   = "Manual"
-        updated_df.at[row_num, "Confidence Score"]  = 100.0
-        count_changed += 1
+        for idx in indices:
+            updated_df.at[idx, "Display Status"]   = new_status
+            updated_df.at[idx, "Suggested Status"] = _display_to_internal(new_status)
+            updated_df.at[idx, "Override Source"]  = "Manual"
+            updated_df.at[idx, "Confidence Score"] = 100.0
+            count_changed += 1
+        applied_rows.append({
+            "Key":            row["_key"],
+            "Customer Name":  safe_str(row.get("Customer Name")),
+            "Visit Date":     str(row.get("Visit Date"))[:10],
+            "Sales Rep Name": safe_str(row.get("Sales Rep Name")),
+            "Manual Status":  new_status,
+        })
 
     # Save overrides to disk for persistence
-    if count_changed > 0:
-        _save_overrides(override_df[["Row Number", "Manual Status"]])
+    if applied_rows:
+        _save_overrides(pd.DataFrame(applied_rows))
 
     return updated_df, count_changed, errors
 
@@ -420,7 +544,7 @@ def _display_to_internal(display: str) -> str:
 
 
 def _save_overrides(override_df: pd.DataFrame):
-    """Save overrides to parquet for persistence."""
+    """Save keyed overrides to parquet for persistence."""
     paths = _paths()
     paths["overrides"].parent.mkdir(parents=True, exist_ok=True)
 
@@ -431,23 +555,53 @@ def _save_overrides(override_df: pd.DataFrame):
         except Exception:
             existing = pd.DataFrame()
 
-    if not existing.empty and "Row Number" in existing.columns:
-        # Merge: new overrides overwrite existing ones for same row
+    if not existing.empty and "Key" in existing.columns:
+        # Merge: new overrides overwrite existing ones for the same visit
         combined = pd.concat([existing, override_df], ignore_index=True)
-        combined = combined.drop_duplicates(subset=["Row Number"], keep="last")
+        combined = combined.drop_duplicates(subset=["Key"], keep="last")
     else:
         combined = override_df.copy()
 
-    _df_to_parquet(combined, paths["overrides"])
+    with _write_lock():
+        _df_to_parquet(combined, paths["overrides"])
+        # Update metadata
+        meta = _load_metadata()
+        meta["override_count"] = len(combined)
+        _save_metadata(meta)
 
-    # Update metadata
-    meta = _load_metadata()
-    meta["override_count"] = len(combined)
-    _save_metadata(meta)
+
+def _migrate_legacy_overrides(overrides: pd.DataFrame, classified_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Convert old row-number overrides to stable visit keys.
+    Safe because the saved classified parquet is exactly the dataset
+    those row numbers were created against.
+    """
+    migrated = []
+    for _, row in overrides.iterrows():
+        try:
+            row_num = int(row["Row Number"])
+        except (ValueError, TypeError):
+            continue
+        if row_num not in classified_df.index:
+            continue
+        src = classified_df.loc[row_num]
+        migrated.append({
+            "Key": _visit_key(src.get("Customer Name"), src.get("Visit Date"),
+                              src.get("Sales Rep Name"), src.get("Visit Notes")),
+            "Customer Name":  safe_str(src.get("Customer Name")),
+            "Visit Date":     str(src.get("Visit Date"))[:10],
+            "Sales Rep Name": safe_str(src.get("Sales Rep Name")),
+            "Manual Status":  str(row["Manual Status"]).strip(),
+        })
+    migrated_df = pd.DataFrame(migrated).drop_duplicates(subset=["Key"], keep="last")
+    if not migrated_df.empty:
+        with _write_lock():
+            _df_to_parquet(migrated_df, _paths()["overrides"])
+    return migrated_df
 
 
 def _apply_saved_overrides(classified_df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
-    """Apply any saved overrides to classified_df on load."""
+    """Apply any saved overrides to classified_df on load (key-based)."""
     paths = _paths()
 
     if not paths["overrides"].exists():
@@ -458,23 +612,29 @@ def _apply_saved_overrides(classified_df: pd.DataFrame) -> tuple[pd.DataFrame, i
         if overrides.empty:
             return classified_df, 0
 
+        # One-time migration from the legacy row-number format
+        if "Key" not in overrides.columns and "Row Number" in overrides.columns:
+            overrides = _migrate_legacy_overrides(overrides, classified_df)
+            if overrides.empty:
+                return classified_df, 0
+
         updated = classified_df.copy()
+        data_keys = _visit_key_series(updated)
+        key_to_idx: dict = {}
+        for idx, k in data_keys.items():
+            key_to_idx.setdefault(k, []).append(idx)
+
         count = 0
-
         for _, row in overrides.iterrows():
-            row_num    = int(row["Row Number"])
             new_status = str(row["Manual Status"]).strip()
-
-            if row_num not in updated.index:
-                continue
             if new_status not in VALID_STATUSES:
                 continue
-
-            updated.at[row_num, "Display Status"]  = new_status
-            updated.at[row_num, "Suggested Status"] = _display_to_internal(new_status)
-            updated.at[row_num, "Override Source"]  = "Manual"
-            updated.at[row_num, "Confidence Score"] = 100.0
-            count += 1
+            for idx in key_to_idx.get(row.get("Key"), []):
+                updated.at[idx, "Display Status"]   = new_status
+                updated.at[idx, "Suggested Status"] = _display_to_internal(new_status)
+                updated.at[idx, "Override Source"]  = "Manual"
+                updated.at[idx, "Confidence Score"] = 100.0
+                count += 1
 
         return updated, count
     except Exception:
@@ -496,18 +656,107 @@ def clear_overrides() -> tuple[bool, str]:
 
 
 def clear_all_data() -> tuple[bool, str]:
-    """Delete all saved data (reset)."""
+    """Delete all saved data (reset). Custom keyword rules are kept."""
     try:
         data_dir = get_data_dir()
         for f in data_dir.glob("*.parquet"):
             f.unlink()
         for f in data_dir.glob("*.json"):
-            f.unlink()
+            if f.name != "custom_rules.json":
+                f.unlink()
         for f in data_dir.glob("*.xlsx"):
             f.unlink()
-        return True, "✅ تم حذف كل البيانات المحفوظة"
+        return True, "✅ تم حذف كل البيانات المحفوظة (تم الاحتفاظ بالقواعد المخصصة)"
     except Exception as e:
         return False, f"❌ خطأ: {e}"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# CUSTOM KEYWORD RULES (editable from the UI)
+# ═══════════════════════════════════════════════════════════════════
+
+def load_custom_rules() -> list[dict]:
+    """Load user-defined keyword rules: [{"keyword","status","score"}, ...]"""
+    p = _paths()["custom_rules"]
+    if not p.exists():
+        return []
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            rules = json.load(f)
+        return [r for r in rules
+                if isinstance(r, dict) and r.get("keyword") and r.get("status")]
+    except Exception:
+        return []
+
+
+def save_custom_rules(rules: list[dict]) -> tuple[bool, str]:
+    p = _paths()["custom_rules"]
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_name(p.name + ".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(rules, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, p)
+        return True, "✅ تم حفظ القواعد المخصصة"
+    except Exception as e:
+        return False, f"❌ خطأ في حفظ القواعد: {e}"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# CUSTOMER NAME MERGES (user-approved unification)
+# Names are only merged within the SAME governorate, and only after
+# explicit user approval in the review screen.
+# ═══════════════════════════════════════════════════════════════════
+
+def load_name_merges() -> pd.DataFrame:
+    """Columns: Governorate, Variant (raw name), Canonical (unified name)."""
+    p = _paths()["name_merges"]
+    if not p.exists():
+        return pd.DataFrame(columns=["Governorate", "Variant", "Canonical"])
+    try:
+        return _parquet_to_df(p)
+    except Exception:
+        return pd.DataFrame(columns=["Governorate", "Variant", "Canonical"])
+
+
+def save_name_merges(merges_df: pd.DataFrame) -> tuple[bool, str]:
+    try:
+        with _write_lock():
+            _df_to_parquet(merges_df, _paths()["name_merges"])
+        return True, "✅ تم حفظ توحيد الأسماء"
+    except Exception as e:
+        return False, f"❌ خطأ: {e}"
+
+
+def apply_name_merges(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Apply approved merges in-memory. The original spelling is always kept in
+    'Customer Name Original', and is restored first so removing a merge
+    takes effect on the next load.
+    """
+    if df.empty or "Customer Name" not in df.columns:
+        return df
+    df = df.copy()
+
+    # Restore originals first (makes merge removal reversible)
+    if "Customer Name Original" in df.columns:
+        restored = df["Customer Name Original"].fillna("").astype(str)
+        df["Customer Name"] = np.where(restored != "", restored, df["Customer Name"])
+    else:
+        df["Customer Name Original"] = df["Customer Name"]
+
+    merges = load_name_merges()
+    if merges.empty:
+        return df
+
+    gov = df["Governorate"].astype(str) if "Governorate" in df.columns else ""
+    mapping = {
+        (safe_str(r["Governorate"]), safe_str(r["Variant"])): safe_str(r["Canonical"])
+        for _, r in merges.iterrows()
+    }
+    keys = list(zip(gov, df["Customer Name"].astype(str)))
+    df["Customer Name"] = [mapping.get(k, k[1]) for k in keys]
+    return df
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -515,13 +764,15 @@ def clear_all_data() -> tuple[bool, str]:
 # ═══════════════════════════════════════════════════════════════════
 
 def _df_to_parquet(df: pd.DataFrame, path: Path):
-    """Save DataFrame as parquet with date handling."""
+    """Save DataFrame as parquet atomically (write temp file, then swap)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     df_save = df.copy()
     # Convert datetime columns to string to avoid timezone issues
     for col in df_save.select_dtypes(include=["datetime64[ns]", "datetime64[ns, UTC]"]).columns:
         df_save[col] = df_save[col].astype(str)
-    df_save.to_parquet(str(path), index=True, engine="pyarrow" if _has_pyarrow() else "fastparquet")
+    tmp = path.with_name(path.name + ".tmp")
+    df_save.to_parquet(str(tmp), index=True, engine="pyarrow" if _has_pyarrow() else "fastparquet")
+    os.replace(tmp, path)
 
 
 def _parquet_to_df(path: Path) -> pd.DataFrame:
