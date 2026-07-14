@@ -1742,7 +1742,6 @@ elif page == "المنافسون":
         if "Visit Date" in show_export.columns:
             show_export["Visit Date"] = pd.to_datetime(show_export["Visit Date"], errors="coerce").dt.strftime("%Y-%m-%d")
         _xlsx_download(show_export, "⬇ تصدير قائمة العملاء المهددين Excel", "Losing_To_Competitors.xlsx", key="dl_lose")
-        _xlsx_download(show_l, "⬇️ تصدير القائمة Excel", "Losing_To_Competitors.xlsx", key="dl_lose")
 
 
 # ═══════════════════════════════════════════════════════════════════
