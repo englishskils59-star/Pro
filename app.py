@@ -1387,16 +1387,22 @@ elif page == "أداء المندوبين":
         days_avail   = sorted(df_m["Visit Date"].dt.day.dropna().unique().astype(int).tolist())
         reps_avail   = sorted(df_m["Sales Rep Name"].dropna().unique().tolist())
 
-        with fl1: sel_y = st.multiselect("السنة",    years_avail,  default=years_avail,  key="rt_y")
-        with fl2: sel_m = st.multiselect("الشهر",    months_avail, default=months_avail,
-                                          format_func=lambda x: f"{months_map[x]} ({x})", key="rt_m")
-        with fl3: sel_d = st.multiselect("اليوم",    days_avail,   default=days_avail,   key="rt_d")
-        with fl4: sel_r = st.multiselect("المندوب",  reps_avail,   default=reps_avail,   key="rt_r")
+        with fl1:
+            sel_y = st.selectbox("السنة", ["الكل"] + years_avail, key="rt_year")
+        with fl2:
+            sel_m = st.selectbox("الشهر", ["الكل"] + months_avail,
+                                 format_func=lambda x: x if x == "الكل" else f"{months_map[x]} ({x})",
+                                 key="rt_month")
+        with fl3:
+            sel_d = st.selectbox("اليوم", ["الكل"] + days_avail, key="rt_day")
+        with fl4:
+            sel_r = st.selectbox("المندوب", ["الكل"] + reps_avail, key="rt_rep")
 
-        mask = (df_m["Visit Date"].dt.year.isin(sel_y)  &
-                df_m["Visit Date"].dt.month.isin(sel_m) &
-                df_m["Visit Date"].dt.day.isin(sel_d)   &
-                df_m["Sales Rep Name"].isin(sel_r))
+        mask = pd.Series(True, index=df_m.index)
+        if sel_y != "الكل": mask &= df_m["Visit Date"].dt.year  == sel_y
+        if sel_m != "الكل": mask &= df_m["Visit Date"].dt.month == sel_m
+        if sel_d != "الكل": mask &= df_m["Visit Date"].dt.day   == sel_d
+        if sel_r != "الكل": mask &= df_m["Sales Rep Name"]      == sel_r
         df_mf = df_m[mask].copy()
 
         if df_mf.empty:
