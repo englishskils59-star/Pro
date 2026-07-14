@@ -10,15 +10,31 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 
+import plotly.io as pio
+
 from utils import safe_str, days_since, STATUS_COLORS, NON_STATUS_LABELS
 
-# Brand palette
-PRIMARY   = "#1F4E79"
-SECONDARY = "#2E75B6"
-ACCENT    = "#70AD47"
-BG        = "#F5F7FA"
+# Brand palette (WDI dark design)
+PRIMARY   = "#2DD4BF"   # teal
+SECONDARY = "#4C9AFF"   # blue
+ACCENT    = "#70AD47"   # green
+BG        = "rgba(0,0,0,0)"
 
-PLOTLY_TEMPLATE = "plotly_white"
+# ── Custom dark Plotly template matching the approved design ──
+_wdi = go.layout.Template(pio.templates["plotly_dark"])
+_wdi.layout.paper_bgcolor = "rgba(0,0,0,0)"
+_wdi.layout.plot_bgcolor  = "rgba(0,0,0,0)"
+_wdi.layout.font = dict(color="#8B98A5",
+                        family="'IBM Plex Sans Arabic','Segoe UI',sans-serif")
+_wdi.layout.xaxis = dict(gridcolor="#1D262F", zerolinecolor="#1D262F", linecolor="#2A3540")
+_wdi.layout.yaxis = dict(gridcolor="#1D262F", zerolinecolor="#1D262F", linecolor="#2A3540")
+_wdi.layout.colorway = ["#2DD4BF", "#4C9AFF", "#70AD47", "#FFC000",
+                        "#F08080", "#A78BFA", "#ED7D31", "#8B98A5"]
+_wdi.layout.hoverlabel = dict(bgcolor="#10171D", bordercolor="#1D262F",
+                              font=dict(color="#E6EDF3"))
+pio.templates["wdi_dark"] = _wdi
+
+PLOTLY_TEMPLATE = "wdi_dark"
 
 # ═══════════════════════════════════════════════════════════════════
 # SHARED HELPERS
@@ -341,7 +357,7 @@ def sales_rep_kpi(classified_df: pd.DataFrame, journey_df: pd.DataFrame) -> tupl
     fig1 = px.bar(
         kpi_df, x="Sales Rep Name", y="Total Visits",
         color="Total Visits",
-        color_continuous_scale=[[0, "#BDD7EE"], [1, PRIMARY]],
+        color_continuous_scale=[[0, "#14655C"], [1, PRIMARY]],
         template=PLOTLY_TEMPLATE,
         title="Total Visits per Sales Rep",
         text="Total Visits",
@@ -357,7 +373,7 @@ def sales_rep_kpi(classified_df: pd.DataFrame, journey_df: pd.DataFrame) -> tupl
         kpi_df.sort_values("Conversion Rate (%)"), x="Conversion Rate (%)", y="Sales Rep Name",
         orientation="h",
         color="Conversion Rate (%)",
-        color_continuous_scale=[[0, "#BDD7EE"], [1, ACCENT]],
+        color_continuous_scale=[[0, "#2C4A22"], [1, ACCENT]],
         template=PLOTLY_TEMPLATE,
         title="Conversion Rate (%) by Sales Rep",
         text="Conversion Rate (%)",
@@ -475,7 +491,7 @@ def executive_dashboard_data(
             kpi_df.head(10), x="Total Visits", y="Sales Rep Name",
             orientation="h",
             color="Total Visits",
-            color_continuous_scale=[[0, "#BDD7EE"], [1, PRIMARY]],
+            color_continuous_scale=[[0, "#14655C"], [1, PRIMARY]],
             template=PLOTLY_TEMPLATE,
             title="Top Sales Reps by Total Visits",
             text="Total Visits",
@@ -556,7 +572,7 @@ def executive_dashboard_data(
         fig_dist = px.treemap(
             dist_counts, path=["District"], values="Unique Customers",
             color="Unique Customers",
-            color_continuous_scale=[[0, "#BDD7EE"], [1, PRIMARY]],
+            color_continuous_scale=[[0, "#14655C"], [1, PRIMARY]],
             title="Customers by District",
         )
         fig_dist.update_layout(paper_bgcolor=BG, margin=dict(l=10, r=10, t=50, b=10))

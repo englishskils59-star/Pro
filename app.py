@@ -56,35 +56,89 @@ st.set_page_config(
 # GLOBAL CSS
 # ═══════════════════════════════════════════════════════════════════
 
-st.markdown("""
+from pathlib import Path as _Path
+
+_FONT_CSS = ""
+try:
+    _FONT_CSS = (_Path(__file__).parent / "static" / "fonts" / "ibmplex.css").read_text(encoding="utf-8")
+except Exception:
+    pass  # fonts missing → falls back to Segoe UI
+
+st.markdown(f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&display=swap');
-:root {
-    --primary:#1F4E79; --secondary:#2E75B6; --accent:#70AD47;
-    --bg:#F5F7FA; --text:#1A1A2E; --card-bg:#FFFFFF; --border:#B8CCE4;
-}
-html,body,[class*="css"]{font-family:'Tajawal','Segoe UI',sans-serif!important;background-color:var(--bg)!important;color:var(--text)!important;}
-[data-testid="stSidebar"]{background:linear-gradient(180deg,var(--primary) 0%,var(--secondary) 100%)!important;}
-[data-testid="stSidebar"] *{color:#FFFFFF!important;}
-[data-testid="stSidebar"] .stRadio label{font-size:15px!important;padding:6px 0!important;}
-[data-testid="metric-container"]{background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:16px 12px!important;box-shadow:0 2px 8px rgba(31,78,121,.08);}
-[data-testid="metric-container"] [data-testid="stMetricLabel"]{font-size:13px!important;color:var(--secondary)!important;font-weight:600!important;}
-[data-testid="metric-container"] [data-testid="stMetricValue"]{font-size:26px!important;color:var(--primary)!important;font-weight:700!important;}
-h1{color:var(--primary)!important;font-weight:700!important;}
-h2{color:var(--secondary)!important;}
-h3{color:var(--primary)!important;}
-.page-banner{background:linear-gradient(90deg,var(--primary) 0%,var(--secondary) 100%);color:#fff;padding:18px 28px;border-radius:12px;margin-bottom:24px;display:flex;align-items:center;gap:14px;}
-.page-banner h1{color:#fff!important;margin:0!important;font-size:22px!important;}
-.page-banner p{color:rgba(255,255,255,.85);margin:0!important;font-size:13px;}
-.section-card{background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:20px 22px;margin-bottom:18px;box-shadow:0 2px 6px rgba(31,78,121,.06);}
-hr{border-color:var(--border)!important;margin:18px 0!important;}
-.stDownloadButton>button{background:var(--accent)!important;color:#fff!important;border:none!important;border-radius:8px!important;font-weight:600!important;padding:8px 20px!important;}
-.stDownloadButton>button:hover{background:var(--primary)!important;}
-.stButton>button{background:var(--secondary)!important;color:#fff!important;border:none!important;border-radius:8px!important;font-weight:600!important;}
-[data-testid="stExpander"]{border:1px solid var(--border)!important;border-radius:8px!important;}
-[data-testid="stFileUploader"]{border:2px dashed var(--secondary)!important;border-radius:10px!important;background:#EBF3FB!important;}
-[data-baseweb="tab-list"]{border-bottom:2px solid var(--border)!important;}
-[data-baseweb="tab"]{color:var(--secondary)!important;font-weight:600!important;}
+{_FONT_CSS}
+:root {{
+    --bg:#0F1417; --side:#0A0E11; --card:#161D24; --card2:#10171D;
+    --border:#1D262F; --border2:#2A3540;
+    --text:#E6EDF3; --muted:#8B98A5; --faint:#566573;
+    --teal:#2DD4BF; --blue:#4C9AFF; --red:#F08080; --amber:#FFC000;
+}}
+html,body,[class*="css"],.stApp{{font-family:'IBM Plex Sans Arabic','Segoe UI',sans-serif!important;}}
+.stApp,[data-testid="stAppViewContainer"]{{background:var(--bg)!important;color:var(--text)!important;}}
+[data-testid="stHeader"]{{background:rgba(15,20,23,.85)!important;}}
+.main .block-container{{direction:rtl;padding-top:2.2rem;max-width:1500px;}}
+::-webkit-scrollbar{{width:10px;height:10px;}}
+::-webkit-scrollbar-thumb{{background:var(--border2);border-radius:6px;}}
+::-webkit-scrollbar-track{{background:transparent;}}
+
+/* ── Sidebar ── */
+[data-testid="stSidebar"]{{background:var(--side)!important;border-left:none;border-right:1px solid var(--border)!important;direction:rtl;}}
+[data-testid="stSidebar"] *{{color:var(--text);}}
+[data-testid="stSidebar"] [role="radiogroup"] label{{padding:7px 12px!important;border-radius:7px;margin:1px 0;transition:background .12s;width:100%;}}
+[data-testid="stSidebar"] [role="radiogroup"] label:hover{{background:#141C23;}}
+[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked){{background:var(--card2);}}
+[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) p{{color:var(--teal)!important;font-weight:700;}}
+[data-testid="stSidebar"] [role="radiogroup"] label p{{font-size:13px!important;color:var(--text);}}
+[data-testid="stSidebar"] hr{{border-color:var(--border)!important;margin:12px 0!important;}}
+
+/* ── Headings / text ── */
+h1,h2,h3{{color:var(--text)!important;}}
+hr{{border-color:var(--border)!important;margin:16px 0!important;}}
+.page-head{{display:flex;align-items:center;gap:14px;margin:2px 0 20px;}}
+.page-bar{{width:4px;height:38px;border-radius:2px;flex-shrink:0;}}
+.page-head h1{{margin:0!important;font-size:22px!important;font-weight:700!important;}}
+.page-en{{font-size:10.5px;letter-spacing:2px;color:var(--faint);margin-top:2px;}}
+.sec-title{{font-size:14px;font-weight:700;color:var(--text);margin:24px 0 10px;}}
+.sec-en{{font-weight:400;color:var(--faint);font-size:10.5px;letter-spacing:1px;}}
+
+/* ── KPI cards ── */
+.kpi-grid{{display:grid;gap:10px;margin:6px 0 14px;}}
+.kpi-card{{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:13px 14px;}}
+.kpi-top{{display:flex;align-items:center;gap:6px;}}
+.kpi-dot{{width:8px;height:8px;border-radius:2px;display:inline-block;flex-shrink:0;}}
+.kpi-label{{font-size:10.5px;color:var(--muted);}}
+.kpi-value{{font-size:24px;font-weight:700;color:var(--text);margin-top:6px;line-height:1.1;}}
+[data-testid="stMetric"]{{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:13px 16px!important;}}
+[data-testid="stMetric"] [data-testid="stMetricLabel"] p{{font-size:11px!important;color:var(--muted)!important;}}
+[data-testid="stMetric"] [data-testid="stMetricValue"]{{font-size:23px!important;color:var(--text)!important;font-weight:700!important;}}
+
+/* ── Cards / tables ── */
+.section-card{{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px 18px;margin-bottom:16px;color:var(--muted);}}
+.wdi-tablewrap{{overflow:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;}}
+.wdi-table{{width:100%;border-collapse:collapse;font-size:12px;direction:rtl;}}
+.wdi-table th{{position:sticky;top:0;background:var(--card2);color:var(--muted);padding:9px 13px;text-align:right;font-weight:600;border-bottom:1px solid var(--border2);white-space:nowrap;z-index:1;}}
+.wdi-table td{{padding:8px 13px;color:#C6D0DA;border-bottom:1px solid #1A222B;}}
+.wdi-badge{{border-radius:5px;padding:2px 9px;font-size:10.5px;font-weight:600;white-space:nowrap;display:inline-block;border:1px solid transparent;}}
+.wdi-chip{{background:var(--card2);border:1px solid var(--border2);border-radius:20px;padding:5px 13px;font-size:11.5px;color:#C6D0DA;display:inline-block;margin:3px 2px;}}
+.wdi-chip b{{color:var(--teal);}}
+
+/* ── Buttons ── */
+.stButton>button{{background:transparent!important;color:var(--text)!important;border:1px solid var(--border2)!important;border-radius:7px!important;font-weight:600!important;font-family:inherit!important;}}
+.stButton>button:hover{{border-color:var(--teal)!important;color:var(--teal)!important;}}
+.stDownloadButton>button{{background:transparent!important;color:var(--teal)!important;border:1px solid rgba(45,212,191,.4)!important;border-radius:7px!important;font-weight:600!important;}}
+.stDownloadButton>button:hover{{background:rgba(45,212,191,.1)!important;}}
+
+/* ── Widgets ── */
+[data-testid="stExpander"]{{border:1px solid var(--border)!important;border-radius:9px!important;background:var(--card);}}
+[data-testid="stFileUploader"] section{{border:2px dashed rgba(45,212,191,.4)!important;border-radius:12px!important;background:rgba(45,212,191,.04)!important;}}
+[data-baseweb="tab-list"]{{border-bottom:1px solid var(--border)!important;gap:4px;}}
+[data-baseweb="tab"]{{color:var(--muted)!important;font-weight:600!important;}}
+[data-baseweb="tab"][aria-selected="true"]{{color:var(--teal)!important;}}
+[data-baseweb="tab-highlight"]{{background-color:var(--teal)!important;}}
+[data-testid="stDataFrame"]{{border:1px solid var(--border);border-radius:8px;}}
+input[type="date"],select{{color-scheme:dark;}}
+[data-testid="stAlert"]{{border-radius:9px;}}
+code{{color:var(--teal)!important;}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -117,30 +171,126 @@ set_custom_rules(load_custom_rules())
 # SHARED UI HELPERS
 # ═══════════════════════════════════════════════════════════════════
 
-def page_banner(icon, title, subtitle=""):
+import html as _html
+
+# Per-page accent colors (from the approved design)
+PAGE_ACCENT = {
+    "upload": "#FFC000", "classify": "#FFC000", "analytics": "#4C9AFF",
+    "reps": "#70AD47", "exec": "#2DD4BF", "action": "#F08080",
+    "comp": "#C00000", "c360": "#4C9AFF", "quality": "#8B98A5", "settings": "#8B98A5",
+}
+
+# Status badge palette: (background, border, text) tuned for the dark theme
+STATUS_BADGE = {
+    "Current Customer":   ("rgba(112,173,71,.13)",  "rgba(112,173,71,.4)",  "#9CD07E"),
+    "Potential Customer": ("rgba(76,154,255,.13)",  "rgba(76,154,255,.4)",  "#7FB3E8"),
+    "Target Customer":    ("rgba(255,192,0,.12)",   "rgba(255,192,0,.4)",   "#FFC000"),
+    "New Customer":       ("rgba(31,78,121,.4)",    "rgba(76,154,255,.35)", "#9CC4F5"),
+    "Former Customer":    ("rgba(169,169,169,.12)", "rgba(169,169,169,.35)","#C0C7CE"),
+    "Not Interested":     ("rgba(240,90,90,.12)",   "rgba(240,90,90,.4)",   "#F08080"),
+    "No Meeting":         ("rgba(132,151,176,.12)", "rgba(132,151,176,.4)", "#A9B7C6"),
+    "Unclassified":       ("rgba(217,217,217,.1)",  "rgba(217,217,217,.3)", "#B8C0C8"),
+}
+
+STATUS_AR = {
+    "Current Customer": "عميل حالي", "Potential Customer": "محتمل",
+    "Target Customer": "مستهدف", "New Customer": "جديد",
+    "Former Customer": "سابق", "Not Interested": "غير مهتم",
+    "No Meeting": "لم تتم المقابلة", "Unclassified": "غير مصنف",
+}
+
+# Arabic display names for DataFrame columns in custom tables
+COL_AR = {
+    "Customer Name": "العميل", "Sales Rep Name": "المندوب", "Governorate": "المحافظة",
+    "District": "المنطقة", "Visit Count": "الزيارات", "Latest Status": "الحالة",
+    "Display Status": "الحالة", "Days Since Last Visit": "منذ (يوم)",
+    "Last Visit Date": "آخر زيارة", "First Visit Date": "أول زيارة",
+    "Visit Date": "التاريخ", "Visit Notes": "الملاحظة", "Confidence Score": "الثقة",
+    "Latest Confidence": "الثقة", "Transition Date": "تاريخ التحوّل",
+    "Days To Convert": "أيام التحويل", "From Status": "من", "To Status": "إلى",
+    "Override Source": "المصدر", "Matched Keywords": "الكلمات المطابقة",
+}
+
+
+def badge(status: str) -> str:
+    bg, border, color = STATUS_BADGE.get(str(status), STATUS_BADGE["Unclassified"])
+    label = STATUS_AR.get(str(status), str(status))
+    return (f'<span class="wdi-badge" style="background:{bg};border-color:{border};'
+            f'color:{color}">{_html.escape(label)}</span>')
+
+
+def html_table(df: pd.DataFrame, badge_cols=(), color_cols=None, height: int = 360,
+               index_col: bool = False):
+    """Design-styled scrollable table with status badges and colored columns."""
+    if df is None or df.empty:
+        st.info("لا توجد بيانات")
+        return
+    color_cols = color_cols or {}
+    show = df.copy()
+    for col in show.columns:
+        if pd.api.types.is_datetime64_any_dtype(show[col]):
+            show[col] = show[col].dt.strftime("%Y-%m-%d")
+
+    ths = ""
+    if index_col:
+        ths += "<th>#</th>"
+    ths += "".join(f"<th>{_html.escape(str(COL_AR.get(c, c)))}</th>" for c in show.columns)
+
+    rows = []
+    for n, (_, r) in enumerate(show.iterrows(), start=1):
+        tds = f'<td style="color:#566573">{n}</td>' if index_col else ""
+        for c in show.columns:
+            v = r[c]
+            v = "" if (v is None or (isinstance(v, float) and pd.isna(v)) or str(v) == "NaT") else v
+            if c in badge_cols:
+                tds += f"<td>{badge(v)}</td>"
+            elif c in color_cols:
+                tds += (f'<td style="color:{color_cols[c]};font-weight:700">'
+                        f'{_html.escape(str(v))}</td>')
+            else:
+                tds += f"<td>{_html.escape(str(v))}</td>"
+        rows.append(f"<tr>{tds}</tr>")
+
+    st.markdown(
+        f'<div class="wdi-tablewrap" style="max-height:{height}px">'
+        f'<table class="wdi-table"><thead><tr>{ths}</tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody></table></div>',
+        unsafe_allow_html=True)
+
+
+def page_banner(title, en_subtitle="", accent="#2DD4BF"):
     st.markdown(f"""
-    <div class="page-banner">
-        <span style="font-size:32px">{icon}</span>
-        <div><h1>{title}</h1>{'<p>'+subtitle+'</p>' if subtitle else ''}</div>
+    <div class="page-head">
+        <div class="page-bar" style="background:{accent}"></div>
+        <div><h1>{title}</h1><div class="page-en">{en_subtitle}</div></div>
     </div>""", unsafe_allow_html=True)
+
+
+_KPI_ACCENTS = ["#2DD4BF", "#4C9AFF", "#70AD47", "#FFC000", "#F08080", "#A78BFA", "#8B98A5", "#2DD4BF", "#4C9AFF"]
 
 
 def kpi_row(metrics: dict, cols_per_row: int = 4):
     items = list(metrics.items())
-    rows  = [items[i:i+cols_per_row] for i in range(0, len(items), cols_per_row)]
-    for row in rows:
-        cols = st.columns(len(row))
-        for col, (label, value) in zip(cols, row):
-            with col:
-                st.metric(label, fmt_number(value) if isinstance(value, (int, np.integer)) else value)
+    cards = ""
+    for i, (label, value) in enumerate(items):
+        val = fmt_number(value) if isinstance(value, (int, np.integer)) else _html.escape(str(value))
+        accent = _KPI_ACCENTS[i % len(_KPI_ACCENTS)]
+        cards += (f'<div class="kpi-card"><div class="kpi-top">'
+                  f'<span class="kpi-dot" style="background:{accent}"></span>'
+                  f'<span class="kpi-label">{_html.escape(str(label))}</span></div>'
+                  f'<div class="kpi-value">{val}</div></div>')
+    ncols = min(len(items), cols_per_row)
+    st.markdown(f'<div class="kpi-grid" style="grid-template-columns:repeat({ncols},1fr)">{cards}</div>',
+                unsafe_allow_html=True)
 
 
 def no_data_warning():
-    st.warning("⚠️ لا توجد بيانات. يرجى رفع ملف Excel من صفحة **Upload Center** أو تحميل البيانات المحفوظة.", icon="📂")
+    st.warning("⚠️ لا توجد بيانات. يرجى رفع ملف Excel من صفحة **مركز الرفع** أو تحميل البيانات المحفوظة.", icon="📂")
 
 
-def section(title):
-    st.markdown(f"<hr><h3>📌 {title}</h3>", unsafe_allow_html=True)
+def section(title, en=""):
+    en_html = f' <span class="sec-en">{en}</span>' if en else ""
+    st.markdown(f'<div class="sec-title">{title}{en_html}</div>', unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -306,24 +456,26 @@ if not st.session_state["processing_done"] and not st.session_state["storage_loa
 
 with st.sidebar:
     st.markdown("""
-    <div style="text-align:center;padding:16px 0 24px">
-        <div style="font-size:42px">📊</div>
-        <div style="font-size:17px;font-weight:700;color:#fff;letter-spacing:.5px">WDI Analytics</div>
-        <div style="font-size:11px;color:rgba(255,255,255,.7);margin-top:4px">Visit Analytics Engine v2.0</div>
+    <div style="display:flex;align-items:center;gap:11px;padding:14px 6px 16px">
+        <div style="width:38px;height:38px;border-radius:9px;background:#2DD4BF;display:flex;align-items:center;justify-content:center;color:#0A0E11;font-weight:700;font-size:16px">W</div>
+        <div>
+            <div style="font-size:15px;font-weight:700;letter-spacing:.3px;color:#E6EDF3">WDI Analytics</div>
+            <div style="font-size:10px;color:#566573;margin-top:2px">Visit Analytics Engine v2.0</div>
+        </div>
     </div>""", unsafe_allow_html=True)
     st.markdown("---")
 
     page = st.radio("Navigation", options=[
-        "📂 Upload Center",
-        "🧠 Customer Classification",
-        "👥 Customer Analytics",
-        "🏆 Sales Rep Performance",
-        "🏢 Executive Dashboard",
-        "🎯 خطة المتابعة",
-        "🥊 المنافسون",
-        "🔍 عميل 360",
-        "📈 جودة البيانات والمحرك",
-        "⚙️ Settings",
+        "مركز الرفع",
+        "تصنيف العملاء",
+        "تحليلات العملاء",
+        "أداء المندوبين",
+        "لوحة التحكم التنفيذية",
+        "خطة المتابعة",
+        "المنافسون",
+        "عميل 360",
+        "جودة البيانات والمحرك",
+        "الإعدادات",
     ], label_visibility="collapsed")
 
     st.markdown("---")
@@ -334,7 +486,7 @@ with st.sidebar:
         meta = get_saved_metadata()
 
         # ── Global date filter (applies to all analytics pages) ──
-        st.markdown("**📅 فلتر الفترة**")
+        st.markdown('<div style="font-size:10px;color:#2DD4BF;font-weight:600;letter-spacing:1px;margin-bottom:4px">فلتر الفترة · DATE FILTER</div>', unsafe_allow_html=True)
         _dates = pd.to_datetime(classified_["Visit Date"], errors="coerce").dropna()
         if not _dates.empty:
             _dmin, _dmax = _dates.min().date(), _dates.max().date()
@@ -362,32 +514,27 @@ with st.sidebar:
             if st.session_state.get("date_range"):
                 _r = st.session_state["date_range"]
                 st.markdown(
-                    f"<div style='background:rgba(255,192,0,.25);padding:6px 10px;border-radius:6px;font-size:12px'>"
-                    f"🔎 الفلتر نشط: {str(_r[0])[:10]} → {str(_r[1])[:10]}</div>",
+                    f"<div style='background:rgba(45,212,191,.12);padding:5px 8px;border-radius:6px;font-size:10.5px;color:#2DD4BF'>"
+                    f"الفلتر نشط: {str(_r[0])[:10]} ← {str(_r[1])[:10]}</div>",
                     unsafe_allow_html=True)
         st.markdown("---")
 
-        st.success("✅ البيانات محملة")
+        _ov = f"""<div style="margin-top:8px;background:rgba(112,173,71,.15);border:1px solid rgba(112,173,71,.3);padding:5px 9px;border-radius:6px;font-size:11px;color:#9CD07E">✏ {meta.get('override_count',0)} تصنيف يدوي محفوظ</div>""" if meta.get("override_count", 0) > 0 else ""
         st.markdown(f"""
-        <div style="font-size:12px;color:rgba(255,255,255,.85)">
-        📄 <b>{st.session_state.get('file_name','—')}</b><br>
-        🗒️ {fmt_number(len(classified_)) if classified_ is not None else '0'} زيارة<br>
-        👤 {fmt_number(classified_['Customer Name'].nunique()) if classified_ is not None else '0'} عميل<br>
-        🧑‍💼 {fmt_number(classified_['Sales Rep Name'].nunique()) if classified_ is not None else '0'} مندوب<br>
-        💾 آخر حفظ: {meta.get('last_saved','—')[:16] if meta.get('last_saved') else '—'}
+        <div style="background:#10171D;border:1px solid #1D262F;border-radius:9px;padding:12px 13px;font-size:11.5px;line-height:2;color:#8B98A5">
+            <div style="font-size:10px;color:#2DD4BF;font-weight:600;letter-spacing:1px;margin-bottom:5px">البيانات المحملة · DATA</div>
+            <div style="font-weight:600;color:#E6EDF3;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{st.session_state.get('file_name','—')}</div>
+            <div>{fmt_number(len(classified_)) if classified_ is not None else '0'} زيارة · {fmt_number(classified_['Customer Name'].nunique()) if classified_ is not None else '0'} عميل</div>
+            <div>{fmt_number(classified_['Sales Rep Name'].nunique()) if classified_ is not None else '0'} مندوب مبيعات</div>
+            <div style="color:#566573;font-size:10.5px">آخر حفظ: {meta.get('last_saved','—')[:16] if meta.get('last_saved') else '—'}</div>
+            {_ov}
         </div>""", unsafe_allow_html=True)
-
-        if meta.get("override_count", 0) > 0:
-            st.markdown(f"""
-            <div style="margin-top:8px;background:rgba(112,173,71,.25);padding:6px 10px;border-radius:6px;font-size:12px">
-            ✏️ {meta['override_count']} تصنيف يدوي محفوظ
-            </div>""", unsafe_allow_html=True)
     else:
         st.info("📂 لا توجد بيانات")
 
     st.markdown("---")
     st.markdown(
-        "<div style='font-size:10px;color:rgba(255,255,255,.4);text-align:center'>WDI Analytics v2.0<br>Fully Offline</div>",
+        "<div style='font-size:9.5px;color:#3D4B58;text-align:center'>WDI Analytics v2.0 · Fully Offline</div>",
         unsafe_allow_html=True)
 
 
@@ -395,8 +542,8 @@ with st.sidebar:
 # PAGE 1 — UPLOAD CENTER
 # ═══════════════════════════════════════════════════════════════════
 
-if page == "📂 Upload Center":
-    page_banner("📂", "Upload Center", "رفع ملف Excel وتشغيل محرك التصنيف")
+if page == "مركز الرفع":
+    page_banner("مركز الرفع", "UPLOAD CENTER — رفع ملف Excel وتشغيل محرك التصنيف", PAGE_ACCENT["upload"])
 
     # ── Show saved data status ──
     if has_saved_data():
@@ -451,11 +598,16 @@ if page == "📂 Upload Center":
             st.dataframe(raw_df.head(50), use_container_width=True, height=350)
 
             section("التحقق من الأعمدة")
-            col_df = pd.DataFrame({
-                "العمود": REQUIRED_COLUMNS,
-                "الحالة": ["✅ موجود" if c in present else "❌ ناقص" for c in REQUIRED_COLUMNS],
-            })
-            st.dataframe(col_df, use_container_width=True, hide_index=True)
+            checks = ""
+            for c in REQUIRED_COLUMNS:
+                ok_c = c in present
+                mark, mcolor = ("✓", "#9CD07E") if ok_c else ("✕", "#F08080")
+                checks += (f'<div style="display:flex;align-items:center;gap:8px;background:#10171D;'
+                           f'border:1px solid #1D262F;border-radius:7px;padding:7px 11px;font-size:11.5px">'
+                           f'<span style="color:{mcolor};font-weight:700">{mark}</span>'
+                           f'<span style="color:#C6D0DA">{_html.escape(c)}</span></div>')
+            st.markdown(f'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;direction:rtl">{checks}</div>',
+                        unsafe_allow_html=True)
 
             st.markdown("<br>", unsafe_allow_html=True)
             if is_valid:
@@ -466,25 +618,25 @@ if page == "📂 Upload Center":
                     st.balloons()
     else:
         st.markdown("""
-        <div class="section-card" style="text-align:center;padding:48px">
-            <div style="font-size:64px">📊</div>
-            <h2 style="color:#1F4E79">WDI Visit Analytics Engine</h2>
-            <p style="color:#555;max-width:500px;margin:0 auto 20px">
+        <div class="section-card" style="text-align:center;padding:40px">
+            <div style="width:54px;height:54px;margin:0 auto 14px;border-radius:12px;background:rgba(45,212,191,.12);border:1px solid rgba(45,212,191,.3);display:flex;align-items:center;justify-content:center;color:#2DD4BF;font-weight:700;font-size:22px">W</div>
+            <div style="font-size:18px;font-weight:700;color:#E6EDF3">WDI Visit Analytics Engine</div>
+            <div style="font-size:12.5px;color:#8B98A5;max-width:460px;margin:8px auto 0;line-height:1.9">
                 ارفع ملف Excel لتصنيف الزيارات وتحليل أداء المندوبين تلقائياً — بدون إنترنت.
-            </p>
+            </div>
         </div>""", unsafe_allow_html=True)
 
         with st.expander("📋 الأعمدة المطلوبة"):
-            st.dataframe(pd.DataFrame({"الأعمدة المطلوبة": REQUIRED_COLUMNS}),
-                         use_container_width=True, hide_index=True)
+            chips = "".join(f'<span class="wdi-chip">{_html.escape(c)}</span>' for c in REQUIRED_COLUMNS)
+            st.markdown(f'<div style="direction:rtl">{chips}</div>', unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
 # PAGE 2 — CUSTOMER CLASSIFICATION
 # ═══════════════════════════════════════════════════════════════════
 
-elif page == "🧠 Customer Classification":
-    page_banner("🧠", "تصنيف العملاء التلقائي", "محرك تصنيف بالكلمات المفتاحية — بدون AI")
+elif page == "تصنيف العملاء":
+    page_banner("تصنيف العملاء", "CLASSIFICATION — محرك تصنيف بالكلمات المفتاحية لكل زيارة", PAGE_ACCENT["classify"])
 
     if not st.session_state["processing_done"]:
         no_data_warning()
@@ -936,8 +1088,8 @@ elif page == "🧠 Customer Classification":
 # PAGE 3 — CUSTOMER ANALYTICS
 # ═══════════════════════════════════════════════════════════════════
 
-elif page == "👥 Customer Analytics":
-    page_banner("👥", "تحليلات العملاء", "تحليل شرائح العملاء وأنماط الزيارات")
+elif page == "تحليلات العملاء":
+    page_banner("تحليلات العملاء", "CUSTOMER ANALYTICS — تحليل شرائح العملاء وأنماط الزيارات", PAGE_ACCENT["analytics"])
 
     if not st.session_state["processing_done"]:
         no_data_warning(); st.stop()
@@ -960,14 +1112,15 @@ elif page == "👥 Customer Analytics":
     section("أكثر 20 عميلاً زيارةً")
     top20 = analytics.get("top_20", pd.DataFrame())
     if not top20.empty:
-        st.dataframe(top20, use_container_width=True, height=380)
+        html_table(top20.reset_index(drop=True), badge_cols=("Latest Status",),
+                   color_cols={"Visit Count": "#2DD4BF"}, height=400, index_col=True)
         fig_top = go.Figure(go.Bar(
             y=top20["Customer Name"], x=top20["Visit Count"],
-            orientation="h", marker_color="#2E75B6",
+            orientation="h", marker_color="#4C9AFF",
             text=top20["Visit Count"], textposition="outside",
         ))
-        fig_top.update_layout(title="Top 20", template="plotly_white",
-                              paper_bgcolor="#F5F7FA", yaxis=dict(autorange="reversed"),
+        fig_top.update_layout(title="Top 20", template="wdi_dark",
+                              paper_bgcolor="rgba(0,0,0,0)", yaxis=dict(autorange="reversed"),
                               margin=dict(l=20,r=40,t=50,b=20), height=520)
         st.plotly_chart(fig_top, use_container_width=True)
 
@@ -993,12 +1146,14 @@ elif page == "👥 Customer Analytics":
         gov_df = analytics.get("gov_dist_df", pd.DataFrame())
         if not gov_df.empty:
             st.markdown("**عملاء حسب المحافظة**")
-            st.dataframe(gov_df, use_container_width=True, hide_index=True)
+            html_table(gov_df.rename(columns={"Unique Customers": "عملاء فريدون"}),
+                       color_cols={"عملاء فريدون": "#4C9AFF"}, height=340)
     with bd2:
         dist_df = analytics.get("district_dist_df", pd.DataFrame())
         if not dist_df.empty:
             st.markdown("**عملاء حسب المنطقة (أعلى 20)**")
-            st.dataframe(dist_df.head(20), use_container_width=True, hide_index=True)
+            html_table(dist_df.head(20).rename(columns={"Unique Customers": "عملاء فريدون"}),
+                       color_cols={"عملاء فريدون": "#4C9AFF"}, height=340)
 
     section("🗺️ خريطة التغطية")
     cmap = coverage_map(view["classified"], journey_df)
@@ -1007,7 +1162,7 @@ elif page == "👥 Customer Analytics":
         if cmap["unmatched"]:
             st.caption("⚠️ محافظات لم يتم التعرف على موقعها: " + "، ".join(cmap["unmatched"]))
         with st.expander("📋 جدول التغطية بالمحافظات"):
-            st.dataframe(cmap["table"], use_container_width=True, hide_index=True)
+            html_table(cmap["table"], color_cols={"العملاء": "#4C9AFF", "الحاليون": "#9CD07E"}, height=280)
     else:
         st.info("لا توجد بيانات محافظات كافية لرسم الخريطة")
 
@@ -1023,8 +1178,8 @@ elif page == "👥 Customer Analytics":
 # PAGE 4 — SALES REP PERFORMANCE
 # ═══════════════════════════════════════════════════════════════════
 
-elif page == "🏆 Sales Rep Performance":
-    page_banner("🏆", "أداء المندوبين", "KPIs وتحليل مقارن وتريند شهري")
+elif page == "أداء المندوبين":
+    page_banner("أداء المندوبين", "REP PERFORMANCE — الإنتاجية والتحويلات لكل مندوب مبيعات", PAGE_ACCENT["reps"])
 
     if not st.session_state["processing_done"]:
         no_data_warning(); st.stop()
@@ -1053,7 +1208,9 @@ elif page == "🏆 Sales Rep Performance":
         best_conv = rep_kpi_df.sort_values("True Conversions", ascending=False).iloc[0]
         if best_conv["True Conversions"] > 0:
             st.success(f"⭐ أكثر مندوب تحويلاً لعملاء حاليين: **{best_conv['Sales Rep Name']}** — {int(best_conv['True Conversions'])} عميل تحوّل فعلياً")
-    st.dataframe(rep_kpi_df.reset_index(drop=True), use_container_width=True, height=420)
+    html_table(rep_kpi_df.reset_index(drop=True),
+               color_cols={"Total Visits": "#2DD4BF", "True Conversions": "#4C9AFF",
+                           "Current Customers": "#9CD07E"}, height=440)
 
     section("المخططات")
     for _, fig in rep_figures:
@@ -1093,10 +1250,10 @@ elif page == "🏆 Sales Rep Performance":
             monthly_rep = df_mf.groupby(["Month_Period","Sales Rep Name"]).size().reset_index(name="Visits")
 
             fig_ml = px.line(monthly_rep, x="Month_Period", y="Visits", color="Sales Rep Name",
-                             markers=True, template="plotly_white",
+                             markers=True, template="wdi_dark",
                              title="الزيارات الشهرية لكل مندوب", text="Visits")
             fig_ml.update_traces(textposition="top center")
-            fig_ml.update_layout(paper_bgcolor="#F5F7FA", legend=dict(orientation="h",y=-0.3),
+            fig_ml.update_layout(paper_bgcolor="rgba(0,0,0,0)", legend=dict(orientation="h",y=-0.3),
                                  xaxis_tickangle=-45, margin=dict(l=20,r=20,t=50,b=100))
             st.plotly_chart(fig_ml, use_container_width=True)
 
@@ -1113,7 +1270,7 @@ elif page == "🏆 Sales Rep Performance":
         st.plotly_chart(wp["heatmap"], use_container_width=True)
     if not wp["stats"].empty:
         st.markdown("**أيام العمل الفعلية لكل مندوب**")
-        st.dataframe(wp["stats"], use_container_width=True, hide_index=True)
+        html_table(wp["stats"], color_cols={"متوسط زيارات/يوم عمل": "#2DD4BF"}, height=340)
 
     section("تصدير")
     st.download_button("⬇️ Sales Rep KPI.xlsx",
@@ -1126,8 +1283,8 @@ elif page == "🏆 Sales Rep Performance":
 # PAGE 5 — EXECUTIVE DASHBOARD
 # ═══════════════════════════════════════════════════════════════════
 
-elif page == "🏢 Executive Dashboard":
-    page_banner("🏢", "لوحة التحكم التنفيذية", "KPIs وتريند ورؤية استراتيجية")
+elif page == "لوحة التحكم التنفيذية":
+    page_banner("لوحة التحكم التنفيذية", "EXECUTIVE DASHBOARD", PAGE_ACCENT["exec"])
 
     if not st.session_state["processing_done"]:
         no_data_warning(); st.stop()
@@ -1179,15 +1336,18 @@ elif page == "🏢 Executive Dashboard":
         section("توزيع المناطق")
         if exec_data.get("fig_district"): st.plotly_chart(exec_data["fig_district"], use_container_width=True)
 
-    section("أكثر 20 عميلاً زيارةً")
+    section("أكثر 20 عميلاً زيارةً", "TOP 20 CUSTOMERS")
     top_c = exec_data.get("top_customers_df", pd.DataFrame())
-    if not top_c.empty: st.dataframe(top_c, use_container_width=True, height=340)
+    if not top_c.empty:
+        html_table(top_c.reset_index(drop=True), badge_cols=("Latest Status",),
+                   color_cols={"Visit Count": "#2DD4BF"}, height=350, index_col=True)
 
-    section("⏰ عملاء يحتاجون متابعة (30+ يوم)")
+    section("⏰ عملاء يحتاجون متابعة (30+ يوم)", "FOLLOW-UP")
     fu_df = exec_data.get("followup_df", pd.DataFrame())
     if not fu_df.empty:
         st.error(f"🚨 {len(fu_df)} عميل يحتاج متابعة")
-        st.dataframe(fu_df, use_container_width=True, height=320)
+        html_table(fu_df.reset_index(drop=True), badge_cols=("Latest Status",),
+                   color_cols={"Days Since Last Visit": "#FFC000"}, height=320)
 
     # ── Funnel: customer transitions ──
     funnel = exec_data.get("funnel", {})
@@ -1215,7 +1375,11 @@ elif page == "🏢 Executive Dashboard":
         fc1, fc2 = st.columns(2)
         with fc1:
             st.markdown("**مصفوفة التحوّل (من ← إلى) — عدد التحوّلات**")
-            st.dataframe(funnel.get("matrix", pd.DataFrame()), use_container_width=True)
+            _mx = funnel.get("matrix", pd.DataFrame())
+            if not _mx.empty:
+                _mxr = _mx.reset_index()
+                _mxr.columns = [STATUS_AR.get(c, COL_AR.get(c, c)) for c in _mxr.columns]
+                html_table(_mxr, height=300)
         with fc2:
             if funnel.get("fig_rep_conversions") is not None:
                 st.plotly_chart(funnel["fig_rep_conversions"], use_container_width=True)
@@ -1237,7 +1401,8 @@ elif page == "🏢 Executive Dashboard":
         show_churn = churn_df.copy()
         if "Last Visit Date" in show_churn.columns:
             show_churn["Last Visit Date"] = pd.to_datetime(show_churn["Last Visit Date"], errors="coerce").dt.strftime("%Y-%m-%d")
-        st.dataframe(show_churn, use_container_width=True, height=320)
+        html_table(show_churn.reset_index(drop=True), badge_cols=("Latest Status",),
+                   color_cols={"Days Since Last Visit": "#F08080"}, height=320)
         out_churn = io.BytesIO()
         with pd.ExcelWriter(out_churn, engine="openpyxl") as w:
             show_churn.to_excel(w, index=False, sheet_name="Churned Customers")
@@ -1296,8 +1461,8 @@ elif page == "🏢 Executive Dashboard":
 # PAGE — ACTION CENTER (خطة المتابعة)
 # ═══════════════════════════════════════════════════════════════════
 
-elif page == "🎯 خطة المتابعة":
-    page_banner("🎯", "خطة المتابعة", "أولويات الزيارة القادمة + متتبع الوعود")
+elif page == "خطة المتابعة":
+    page_banner("خطة المتابعة", "ACTION CENTER — أولويات الزيارة والوعود المستحقة", PAGE_ACCENT["action"])
 
     if not st.session_state["processing_done"]:
         no_data_warning(); st.stop()
@@ -1342,7 +1507,9 @@ elif page == "🎯 خطة المتابعة":
     nbv_f = _pfilter(nbv_df)
     top_n = st.slider("عدد العملاء المعروضين", 10, 200, 50, 10, key="ac_topn")
     show_nbv = nbv_f.head(top_n)
-    st.dataframe(show_nbv, use_container_width=True, height=420)
+    html_table(show_nbv.reset_index(drop=True),
+               badge_cols=("Latest Status",),
+               color_cols={"أولوية الزيارة": "#F08080"}, height=440, index_col=True)
     if not show_nbv.empty:
         _xlsx_download(show_nbv, "⬇️ تصدير خطة الزيارات Excel", "Visit_Priority_Plan.xlsx", key="dl_nbv")
 
@@ -1361,7 +1528,7 @@ elif page == "🎯 خطة المتابعة":
         for dc in ["تاريخ الوعد", "الاستحقاق"]:
             show_p[dc] = pd.to_datetime(show_p[dc], errors="coerce").dt.strftime("%Y-%m-%d")
         st.info(f"🤝 {len(show_p):,} وعد")
-        st.dataframe(show_p, use_container_width=True, height=420)
+        html_table(show_p.reset_index(drop=True), badge_cols=("الحالة الحالية",), height=420)
         if not show_p.empty:
             _xlsx_download(show_p, "⬇️ تصدير الوعود Excel", "Promise_Tracker.xlsx", key="dl_prom")
 
@@ -1370,8 +1537,8 @@ elif page == "🎯 خطة المتابعة":
 # PAGE — COMPETITORS (المنافسون)
 # ═══════════════════════════════════════════════════════════════════
 
-elif page == "🥊 المنافسون":
-    page_banner("🥊", "تحليل المنافسين", "استخبارات تنافسية من ملاحظات الزيارات")
+elif page == "المنافسون":
+    page_banner("المنافسون", "COMPETITORS — رصد ذِكر الموردين المنافسين في ملاحظات الزيارة", PAGE_ACCENT["comp"])
 
     if not st.session_state["processing_done"]:
         no_data_warning(); st.stop()
@@ -1398,9 +1565,9 @@ elif page == "🥊 المنافسون":
         if comp["fig_competitors"] is not None:
             st.plotly_chart(comp["fig_competitors"], use_container_width=True)
     with cc2:
-        section("المنافس × المحافظة (عملاء)")
+        section("المنافس × المحافظة (عملاء)", "TOP 10")
         if not comp["by_gov_matrix"].empty:
-            st.dataframe(comp["by_gov_matrix"], use_container_width=True, height=500)
+            html_table(comp["by_gov_matrix"].reset_index(), height=500)
 
     section("🚨 عملاء نخسرهم لمنافس (مستهدف / غير مهتم / سابق)")
     if losing.empty:
@@ -1409,7 +1576,8 @@ elif page == "🥊 المنافسون":
         show_l = losing.copy()
         if "Visit Date" in show_l.columns:
             show_l["Visit Date"] = pd.to_datetime(show_l["Visit Date"], errors="coerce").dt.strftime("%Y-%m-%d")
-        st.dataframe(show_l, use_container_width=True, height=400)
+        html_table(show_l.reset_index(drop=True), badge_cols=("الحالة الحالية",),
+                   color_cols={"المنافس": "#F08080"}, height=420)
         _xlsx_download(show_l, "⬇️ تصدير القائمة Excel", "Losing_To_Competitors.xlsx", key="dl_lose")
 
 
@@ -1417,8 +1585,8 @@ elif page == "🥊 المنافسون":
 # PAGE — CUSTOMER 360 (عميل 360)
 # ═══════════════════════════════════════════════════════════════════
 
-elif page == "🔍 عميل 360":
-    page_banner("🔍", "ملف العميل 360", "كل شيء عن عميل واحد في شاشة واحدة")
+elif page == "عميل 360":
+    page_banner("عميل 360", "CUSTOMER 360 — سجل الزيارات الكامل لعميل واحد", PAGE_ACCENT["c360"])
 
     if not st.session_state["processing_done"]:
         no_data_warning(); st.stop()
@@ -1459,29 +1627,39 @@ elif page == "🔍 عميل 360":
     if not my_comp.empty:
         st.error("🥊 مرتبط بمنافس: " + "، ".join(sorted(my_comp["المنافس"].unique())))
 
-    # ── Status timeline ──
-    section("الخط الزمني للحالة")
-    tl = cust_v.dropna(subset=["Visit Date"]).copy()
-    if not tl.empty:
-        fig_tl = px.scatter(
-            tl, x="Visit Date", y="Display Status", color="Display Status",
-            color_discrete_map=STATUS_COLORS, template="plotly_white",
-            hover_data={"Visit Notes": True} if "Visit Notes" in tl.columns else None,
-        )
-        fig_tl.update_traces(marker=dict(size=14, line=dict(width=1, color="#FFFFFF")))
-        fig_tl.update_layout(paper_bgcolor="#F5F7FA", showlegend=False, height=300,
-                             margin=dict(l=20, r=20, t=20, b=20), yaxis_title="", xaxis_title="")
-        st.plotly_chart(fig_tl, use_container_width=True)
-        st.code(jrow.get("Status History", "—"), language=None)
+    # ── Visit timeline (design-styled) ──
+    section("الخط الزمني للزيارات", "VISIT TIMELINE")
+    tl = cust_v.sort_values("Visit Date", ascending=False).copy()
+    items = ""
+    for _, r in tl.iterrows():
+        status = str(r.get("Display Status", "Unclassified"))
+        dot = STATUS_COLORS.get(status, "#8B98A5")
+        date_s = str(pd.to_datetime(r.get("Visit Date"), errors="coerce"))[:10]
+        conf = r.get("Confidence Score", 0)
+        rep = _html.escape(str(r.get("Sales Rep Name", "") or "—"))
+        note = _html.escape(str(r.get("Visit Notes", "") or ""))
+        items += f"""
+        <div style="display:flex;gap:14px;padding:12px 4px;border-bottom:1px solid #1A222B">
+            <div style="min-width:86px;font-size:11px;color:#566573;padding-top:2px">{date_s}</div>
+            <div style="width:9px;height:9px;border-radius:50%;background:{dot};margin-top:6px;flex-shrink:0"></div>
+            <div style="flex:1">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+                    {badge(status)}
+                    <span style="font-size:10.5px;color:#566573">ثقة {conf:.0f}% · {rep}</span>
+                </div>
+                <div style="font-size:12.5px;color:#C6D0DA;line-height:1.7">{note}</div>
+            </div>
+        </div>"""
+    st.markdown(
+        f'<div class="section-card" style="max-height:500px;overflow-y:auto;direction:rtl">{items}</div>',
+        unsafe_allow_html=True)
 
-    # ── All visits ──
-    section("كل الزيارات")
+    # ── All visits (export) ──
     vcols = ["Visit Date", "Sales Rep Name", "Display Status", "Confidence Score",
              "Visit Notes", "Matched Keywords", "Override Source"]
     vcols = [c for c in vcols if c in cust_v.columns]
     show_v = cust_v[vcols].copy()
     show_v["Visit Date"] = pd.to_datetime(show_v["Visit Date"], errors="coerce").dt.strftime("%Y-%m-%d")
-    st.dataframe(show_v.reset_index(drop=True), use_container_width=True, height=360)
     _xlsx_download(show_v, "⬇️ تصدير ملف العميل Excel", f"Customer_360.xlsx", key="dl_c360")
 
 
@@ -1489,8 +1667,8 @@ elif page == "🔍 عميل 360":
 # PAGE — DATA & ENGINE QUALITY (جودة البيانات والمحرك)
 # ═══════════════════════════════════════════════════════════════════
 
-elif page == "📈 جودة البيانات والمحرك":
-    page_banner("📈", "جودة البيانات والمحرك", "صحة البيانات، جودة التسجيل، ودقة التصنيف")
+elif page == "جودة البيانات والمحرك":
+    page_banner("جودة البيانات والمحرك", "DATA & ENGINE QUALITY — فحص اكتمال البيانات وتغطية المحرك", PAGE_ACCENT["quality"])
 
     if not st.session_state["processing_done"]:
         no_data_warning(); st.stop()
@@ -1515,7 +1693,7 @@ elif page == "📈 جودة البيانات والمحرك":
     section("📝 جودة تسجيل الملاحظات لكل مندوب")
     nq = note_quality(master_df)
     if not nq.empty:
-        st.dataframe(nq, use_container_width=True, hide_index=True, height=380)
+        html_table(nq, color_cols={"ملاحظات فارغة %": "#F08080"}, height=380)
         st.caption("الملاحظات المنسوخة = ملاحظات متطابقة حرفياً لنفس المندوب (مؤشر تسجيل شكلي)")
 
     # ── Engine accuracy vs manual ──
@@ -1549,15 +1727,19 @@ elif page == "📈 جودة البيانات والمحرك":
     if phrases.empty:
         st.success("✅ لا توجد عبارات متكررة غير مغطاة — المحرك يغطي البيانات الحالية جيداً")
     else:
-        st.dataframe(phrases, use_container_width=True, hide_index=True, height=380)
+        chips = "".join(
+            f'<span class="wdi-chip">{_html.escape(str(r["العبارة"]))} <b>×{r["التكرار"]}</b></span>'
+            for _, r in phrases.iterrows())
+        st.markdown(f'<div class="section-card" style="direction:rtl">{chips}</div>',
+                    unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
 # PAGE 6 — SETTINGS
 # ═══════════════════════════════════════════════════════════════════
 
-elif page == "⚙️ Settings":
-    page_banner("⚙️", "الإعدادات", "إعداد مسار البيانات المشتركة وإدارة التخزين")
+elif page == "الإعدادات":
+    page_banner("الإعدادات", "SETTINGS — إعداد مسار البيانات المشتركة وإدارة التخزين", PAGE_ACCENT["settings"])
 
     status = storage_status()
 
@@ -1674,29 +1856,18 @@ elif page == "⚙️ Settings":
                     st.error(msg)
 
     # ── How to Share ──
-    section("📖 كيفية المشاركة على الشبكة")
-    st.markdown("""
-    **خطوات تشغيل البرنامج على أكثر من جهاز:**
-
-    **1. على الجهاز الرئيسي (اللي شغّل البرنامج):**
-    ```
-    python -m streamlit run app.py --server.address 0.0.0.0
-    ```
-
-    **2. اعرف IP الجهاز الرئيسي:**
-    ```
-    ipconfig  →  ابحث عن IPv4 Address  →  مثلاً: 192.168.1.5
-    ```
-
-    **3. على أي جهاز تاني في نفس الشبكة:**
-    ```
-    افتح المتصفح واكتب:  http://192.168.1.5:8501
-    ```
-
-    **4. مسار الـ Shared Folder:**
-    ```
-    ضع مسار فولدر مشترك يقدر يوصله كل الأجهزة
-    مثال Windows: \\\\SERVER\\WDI_Analytics\\data
-    مثال mapped drive: Z:\\WDI_Data
-    ```
-    """)
+    section("📖 كيفية المشاركة على الشبكة", "NETWORK SHARING")
+    _steps = [
+        ("1 · على الجهاز الرئيسي", "python -m streamlit run app.py --server.address 0.0.0.0"),
+        ("2 · اعرف IP الجهاز الرئيسي", "ipconfig → IPv4 Address → 192.168.1.5"),
+        ("3 · على أي جهاز في نفس الشبكة", "http://192.168.1.5:8501"),
+        ("4 · مسار الـ Shared Folder", r"\\SERVER\WDI_Analytics\data · Z:\WDI_Data"),
+    ]
+    _cards = "".join(
+        f'''<div style="background:#10171D;border:1px solid #1D262F;border-radius:8px;padding:12px 14px">
+            <div style="font-weight:700;color:#E6EDF3;margin-bottom:6px;font-size:12px">{t}</div>
+            <code dir="ltr" style="display:block;background:#0A0E11;border-radius:6px;padding:8px 10px;font-size:11px;color:#2DD4BF;text-align:left;overflow-x:auto">{_html.escape(c)}</code>
+        </div>''' for t, c in _steps)
+    st.markdown(
+        f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;direction:rtl">{_cards}</div>',
+        unsafe_allow_html=True)

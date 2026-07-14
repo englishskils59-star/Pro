@@ -14,11 +14,12 @@ import plotly.graph_objects as go
 
 from utils import normalize_arabic, safe_str, STATUS_COLORS, NON_STATUS_LABELS
 
-PRIMARY   = "#1F4E79"
-SECONDARY = "#2E75B6"
+from dashboard import PLOTLY_TEMPLATE  # registers the "wdi_dark" template
+
+PRIMARY   = "#2DD4BF"
+SECONDARY = "#4C9AFF"
 ACCENT    = "#70AD47"
-BG        = "#F5F7FA"
-PLOTLY_TEMPLATE = "plotly_white"
+BG        = "rgba(0,0,0,0)"
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -348,7 +349,7 @@ def weekday_productivity(classified_df: pd.DataFrame) -> dict:
              .reindex(columns=[c for c in _WEEKDAY_ORDER], fill_value=0))
 
     fig = px.imshow(pivot, text_auto=True, aspect="auto",
-                    color_continuous_scale=[[0, "#EBF3FB"], [1, PRIMARY]],
+                    color_continuous_scale=[[0, "#10171D"], [1, PRIMARY]],
                     title="توزيع الزيارات على أيام الأسبوع لكل مندوب")
     fig.update_layout(paper_bgcolor=BG, template=PLOTLY_TEMPLATE,
                       margin=dict(l=20, r=20, t=50, b=20),
@@ -624,7 +625,7 @@ def coverage_map(classified_df: pd.DataFrame, journey_df: pd.DataFrame) -> dict:
     )
     fig.update_traces(textposition="top center", textfont_size=11)
     fig.update_layout(
-        paper_bgcolor=BG, plot_bgcolor="#FFFFFF",
+        paper_bgcolor=BG, plot_bgcolor="rgba(0,0,0,0)",
         xaxis=dict(title="", showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(title="", showgrid=False, zeroline=False, showticklabels=False,
                    scaleanchor="x", scaleratio=1),
