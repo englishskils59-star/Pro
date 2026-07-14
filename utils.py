@@ -60,6 +60,14 @@ STATUS_COLORS = {
 # they must never overwrite the customer's last real classification.
 NON_STATUS_LABELS = {"No Meeting", "Unclassified"}
 
+# Arabic display names for statuses (charts, badges, matrices)
+STATUS_AR = {
+    "Current Customer": "عميل حالي", "Potential Customer": "محتمل",
+    "Target Customer": "مستهدف", "New Customer": "جديد",
+    "Former Customer": "سابق", "Not Interested": "غير مهتم",
+    "No Meeting": "لم تتم المقابلة", "Unclassified": "غير مصنف",
+}
+
 # ═══════════════════════════════════════════════════════════════════
 # BASIC HELPERS  (must come first — used by everything below)
 # ═══════════════════════════════════════════════════════════════════

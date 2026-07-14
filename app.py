@@ -220,12 +220,14 @@ def badge(status: str) -> str:
 
 
 def html_table(df: pd.DataFrame, badge_cols=(), color_cols=None, height: int = 360,
-               index_col: bool = False):
-    """Design-styled scrollable table with status badges and colored columns."""
+               index_col: bool = False, cond_colors=None):
+    """Design-styled scrollable table with status badges and colored columns.
+    cond_colors: {col: callable(value) -> css color} for per-value coloring."""
     if df is None or df.empty:
         st.info("لا توجد بيانات")
         return
     color_cols = color_cols or {}
+    cond_colors = cond_colors or {}
     show = df.copy()
     for col in show.columns:
         if pd.api.types.is_datetime64_any_dtype(show[col]):
@@ -244,6 +246,13 @@ def html_table(df: pd.DataFrame, badge_cols=(), color_cols=None, height: int = 3
             v = "" if (v is None or (isinstance(v, float) and pd.isna(v)) or str(v) == "NaT") else v
             if c in badge_cols:
                 tds += f"<td>{badge(v)}</td>"
+            elif c in cond_colors:
+                try:
+                    _cc = cond_colors[c](v)
+                except Exception:
+                    _cc = "#C6D0DA"
+                tds += (f'<td style="color:{_cc};font-weight:700">'
+                        f'{_html.escape(str(v))}</td>')
             elif c in color_cols:
                 tds += (f'<td style="color:{color_cols[c]};font-weight:700">'
                         f'{_html.escape(str(v))}</td>')
@@ -258,11 +267,73 @@ def html_table(df: pd.DataFrame, badge_cols=(), color_cols=None, height: int = 3
         unsafe_allow_html=True)
 
 
-def page_banner(title, en_subtitle="", accent="#2DD4BF"):
+def matrix_table(df: pd.DataFrame, index_label: str = "", height: int = 320):
+    """Design-styled matrix: zeros rendered as dim dots, values bold."""
+    if df is None or df.empty:
+        st.info("لا توجد بيانات")
+        return
+    ths = f"<th>{_html.escape(index_label)}</th>" + "".join(
+        f'<th style="text-align:center">{_html.escape(STATUS_AR.get(str(c), str(c)))}</th>'
+        for c in df.columns)
+    rows = []
+    for idx, r in df.iterrows():
+        tds = (f'<td style="font-weight:600;color:#E6EDF3;white-space:nowrap">'
+               f'{_html.escape(STATUS_AR.get(str(idx), str(idx)))}</td>')
+        for c in df.columns:
+            v = r[c]
+            try:
+                n = int(v)
+            except (ValueError, TypeError):
+                n = 0
+            if n:
+                tds += f'<td style="text-align:center;color:#E6EDF3;font-weight:700">{n}</td>'
+            else:
+                tds += '<td style="text-align:center;color:#2A3540">·</td>'
+        rows.append(f"<tr>{tds}</tr>")
+    st.markdown(
+        f'<div class="wdi-tablewrap" style="max-height:{height}px">'
+        f'<table class="wdi-table"><thead><tr>{ths}</tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody></table></div>',
+        unsafe_allow_html=True)
+
+
+def stat_cards(items: list, cols: int = 4):
+    """
+    Design KPI cards. Each item: dict with
+      label, value — required
+      en (small EN caption), accent (dot color), color (value color), delta (text, color)
+    """
+    cards = ""
+    for it in items:
+        top = f'<span class="kpi-label">{_html.escape(str(it["label"]))}</span>'
+        if it.get("accent"):
+            top = f'<span class="kpi-dot" style="background:{it["accent"]}"></span>' + top
+        vcolor = it.get("color", "#E6EDF3")
+        card = (f'<div class="kpi-card"><div class="kpi-top">{top}</div>'
+                f'<div class="kpi-value" style="color:{vcolor}">{_html.escape(str(it["value"]))}</div>')
+        if it.get("delta"):
+            dt, dc = it["delta"]
+            card += f'<div style="font-size:10.5px;font-weight:600;color:{dc};margin-top:1px">{_html.escape(str(dt))}</div>'
+        if it.get("en"):
+            card += f'<div style="font-size:8.5px;color:#566573;letter-spacing:.8px;margin-top:3px">{_html.escape(str(it["en"]))}</div>'
+        card += "</div>"
+        cards += card
+    st.markdown(
+        f'<div class="kpi-grid" style="grid-template-columns:repeat({cols},1fr)">{cards}</div>',
+        unsafe_allow_html=True)
+
+
+def page_banner(title, en_subtitle="", accent="#2DD4BF", right_html=""):
+    right = (f'<div style="text-align:left;font-size:11.5px;color:#8B98A5;line-height:1.8;'
+             f'background:#10171D;border:1px solid #1D262F;border-radius:8px;padding:8px 14px">'
+             f'{right_html}</div>') if right_html else ""
     st.markdown(f"""
-    <div class="page-head">
-        <div class="page-bar" style="background:{accent}"></div>
-        <div><h1>{title}</h1><div class="page-en">{en_subtitle}</div></div>
+    <div class="page-head" style="justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:14px">
+            <div class="page-bar" style="background:{accent}"></div>
+            <div><h1>{title}</h1><div class="page-en">{en_subtitle}</div></div>
+        </div>
+        {right}
     </div>""", unsafe_allow_html=True)
 
 
@@ -675,23 +746,56 @@ elif page == "تصنيف العملاء":
             horizontal=True, key="cls_view_mode",
         )
 
-        fc1, fc2, fc3 = st.columns(3)
+        fc0, fc1, fc2, fc3 = st.columns(4)
+        with fc0:
+            cls_search = st.text_input("بحث باسم العميل…", key="cls_search")
         with fc1:
             reps_list = ["الكل"] + sorted(classified_df["Sales Rep Name"].dropna().unique().tolist())
             sel_rep = st.selectbox("المندوب", reps_list, key="cls_rep")
         with fc2:
             statuses_list = ["الكل"] + sorted(classified_df["Display Status"].dropna().unique().tolist())
-            sel_status = st.selectbox("الحالة", statuses_list, key="cls_status")
+            sel_status = st.selectbox("الحالة", statuses_list, key="cls_status",
+                                      format_func=lambda s: STATUS_AR.get(s, s))
         with fc3:
-            min_conf = st.slider("أقل نسبة ثقة", 0, 100, 0, 5, key="cls_conf")
+            min_conf = st.slider("حد الثقة الأدنى", 0, 100, 0, 5, key="cls_conf")
 
         filtered = classified_df.copy()
+        if cls_search.strip():
+            filtered = filtered[filtered["Customer Name"].astype(str).str.contains(cls_search.strip(), na=False)]
         if sel_rep    != "الكل": filtered = filtered[filtered["Sales Rep Name"] == sel_rep]
         if sel_status != "الكل": filtered = filtered[filtered["Display Status"]  == sel_status]
         filtered = filtered[filtered["Confidence Score"] >= min_conf]
 
         visit_counts = classified_df.groupby("Customer Name").size().reset_index(name="Visit Count")
         filtered = filtered.merge(visit_counts, on="Customer Name", how="left")
+
+        # ── Design charts: confidence histogram + filtered status donut ──
+        chc1, chc2 = st.columns(2)
+        with chc1:
+            st.markdown("**توزيع مستوى الثقة** <span class='sec-en'>CONFIDENCE</span>", unsafe_allow_html=True)
+            _conf = pd.to_numeric(filtered["Confidence Score"], errors="coerce").fillna(0)
+            _buckets = pd.cut(_conf, bins=[-0.1, 20, 40, 60, 80, 100.1],
+                              labels=["0-20", "20-40", "40-60", "60-80", "80-100"]).value_counts().sort_index()
+            fig_conf = go.Figure(go.Bar(
+                x=_buckets.index.astype(str), y=_buckets.values,
+                marker=dict(color="#4C9AFF", cornerradius=4),
+                text=_buckets.values, textposition="outside"))
+            fig_conf.update_layout(template="wdi_dark", paper_bgcolor="rgba(0,0,0,0)",
+                                   height=260, margin=dict(l=10, r=10, t=20, b=10),
+                                   xaxis_title="", yaxis_title="")
+            st.plotly_chart(fig_conf, use_container_width=True)
+        with chc2:
+            st.markdown("**توزيع الحالات في النتائج المفلترة**", unsafe_allow_html=True)
+            _sc = filtered["Display Status"].value_counts()
+            fig_fst = go.Figure(go.Pie(
+                labels=[STATUS_AR.get(s, s) for s in _sc.index], values=_sc.values,
+                hole=0.55, textinfo="percent",
+                marker=dict(colors=[STATUS_COLORS.get(s, "#888") for s in _sc.index],
+                            line=dict(color="#161D24", width=2))))
+            fig_fst.update_layout(template="wdi_dark", paper_bgcolor="rgba(0,0,0,0)",
+                                  height=260, margin=dict(l=10, r=10, t=20, b=10),
+                                  legend=dict(orientation="v", x=1.02, y=0.5))
+            st.plotly_chart(fig_fst, use_container_width=True)
 
         if view_mode == "👤 موقف نهائي لكل عميل":
             # Last REAL status per customer (No Meeting / Unclassified visits
@@ -729,13 +833,20 @@ elif page == "تصنيف العملاء":
                                file_name="Final_Customer_Status.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         else:
-            show_cols = ["Visit Date","Customer Name","Sales Rep Name","Display Status",
-                         "Visit Count","Confidence Score","Override Source",
-                         "Matched Keywords","Classification Reason","Governorate"]
-            show_cols = [c for c in show_cols if c in filtered.columns]
-            st.info(f"📋 **{fmt_number(len(filtered))}** زيارة")
-            st.dataframe(filtered[show_cols].reset_index(drop=True),
-                         use_container_width=True, height=500)
+            # Design-styled visit log (first 300 rows for speed)
+            st.info(f"📋 **{fmt_number(len(filtered))}** نتيجة — يعرض أول 300")
+            _log = filtered.sort_values("Visit Date", ascending=False).head(300).copy()
+            _log["Visit Date"] = pd.to_datetime(_log["Visit Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+            _log["Visit Notes"] = _log["Visit Notes"].astype(str).str.slice(0, 90)
+            _log["Confidence Score"] = pd.to_numeric(_log["Confidence Score"], errors="coerce").fillna(0).round(0).astype(int)
+            _log_cols = [c for c in ["Visit Date", "Customer Name", "Sales Rep Name",
+                                     "Display Status", "Confidence Score", "Visit Notes"]
+                         if c in _log.columns]
+            html_table(_log[_log_cols].reset_index(drop=True),
+                       badge_cols=("Display Status",),
+                       cond_colors={"Confidence Score": lambda v: "#70AD47" if float(v) >= 70 else ("#FFC000" if float(v) >= 40 else "#F08080")},
+                       height=480)
+            _xlsx_download(filtered, "⬇ تصدير النتائج المفلترة Excel", "Classification_Filtered.xlsx", key="dl_clf")
 
     # ── Tab 2: Journey ──
     with tab2:
@@ -1099,9 +1210,19 @@ elif page == "تحليلات العملاء":
     journey_df = view["journey"]
     kpis = analytics["kpi"]
 
-    kpi_row({k:v for k,v in list(kpis.items())[:4]}, cols_per_row=4)
-    kpi_row({k:v for k,v in list(kpis.items())[4:]}, cols_per_row=5)
-    st.markdown("<br>", unsafe_allow_html=True)
+    _A_SPEC = [
+        ("إجمالي الزيارات", "TOTAL VISITS",   "Total Visits",        "#2DD4BF"),
+        ("عملاء فريدون",    "UNIQUE",         "Unique Customers",    "#4C9AFF"),
+        ("عملاء متكررون",   "REPEATED",       "Repeated Customers",  "#4C9AFF"),
+        ("جدد",             "NEW",            "New Customers",       "#8FB4D9"),
+        ("حاليون",          "CURRENT",        "Current Customers",   "#70AD47"),
+        ("محتملون",         "POTENTIAL",      "Potential Customers", "#2E75B6"),
+        ("مستهدفون",        "TARGET",         "Target Customers",    "#FFC000"),
+        ("سابقون",          "FORMER",         "Former Customers",    "#A9A9A9"),
+        ("غير مهتمين",      "NOT INTERESTED", "Not Interested",      "#F08080"),
+    ]
+    stat_cards([{"label": ar, "en": en, "value": fmt_number(kpis.get(key, 0)), "accent": acc}
+                for ar, en, key, acc in _A_SPEC], cols=5)
 
     ch1, ch2 = st.columns(2)
     with ch1:
@@ -1109,22 +1230,27 @@ elif page == "تحليلات العملاء":
     with ch2:
         if analytics.get("fig_gov"):        st.plotly_chart(analytics["fig_gov"],        use_container_width=True)
 
-    section("أكثر 20 عميلاً زيارةً")
+    section("أكثر 20 عميلاً زيارةً", "TOP 20")
     top20 = analytics.get("top_20", pd.DataFrame())
     if not top20.empty:
-        html_table(top20.reset_index(drop=True), badge_cols=("Latest Status",),
-                   color_cols={"Visit Count": "#2DD4BF"}, height=400, index_col=True)
-        fig_top = go.Figure(go.Bar(
-            y=top20["Customer Name"], x=top20["Visit Count"],
-            orientation="h", marker_color="#4C9AFF",
-            text=top20["Visit Count"], textposition="outside",
-        ))
-        fig_top.update_layout(title="Top 20", template="wdi_dark",
-                              paper_bgcolor="rgba(0,0,0,0)", yaxis=dict(autorange="reversed"),
-                              margin=dict(l=20,r=40,t=50,b=20), height=520)
-        st.plotly_chart(fig_top, use_container_width=True)
+        t20l, t20r = st.columns(2)
+        with t20r:
+            html_table(top20.reset_index(drop=True), badge_cols=("Latest Status",),
+                       color_cols={"Visit Count": "#2DD4BF"}, height=470, index_col=True)
+        with t20l:
+            fig_top = go.Figure(go.Bar(
+                y=top20["Customer Name"].astype(str).str.slice(0, 22),
+                x=top20["Visit Count"],
+                orientation="h", marker=dict(color="#2DD4BF", cornerradius=4),
+                text=top20["Visit Count"], textposition="outside",
+            ))
+            fig_top.update_layout(template="wdi_dark",
+                                  paper_bgcolor="rgba(0,0,0,0)", yaxis=dict(autorange="reversed"),
+                                  margin=dict(l=10,r=45,t=10,b=10), height=480,
+                                  xaxis_title="", yaxis_title="")
+            st.plotly_chart(fig_top, use_container_width=True)
 
-    section("العملاء الذين لم تتم زيارتهم")
+    section("العملاء الذين لم تتم زيارتهم", "NOT VISITED")
     nv_tabs = st.tabs(["30 يوم","60 يوم","90 يوم","180 يوم"])
     for tab_obj, days, key in zip(nv_tabs,[30,60,90,180],
                                    ["not_visited_30","not_visited_60","not_visited_90","not_visited_180"]):
@@ -1133,10 +1259,14 @@ elif page == "تحليلات العملاء":
             if df_nv.empty:
                 st.info(f"لا يوجد عملاء لم يُزاروا منذ {days} يوماً")
             else:
-                st.warning(f"⚠️ {len(df_nv)} عميل لم يُزار منذ {days}+ يوم")
-                st.dataframe(df_nv, use_container_width=True, height=320)
+                st.markdown(
+                    f'<div style="background:rgba(255,192,0,.08);border:1px solid rgba(255,192,0,.25);'
+                    f'border-radius:7px;padding:8px 13px;font-size:12px;color:#FFC000;margin-bottom:10px">'
+                    f'⚠ {len(df_nv):,} عميل لم يُزار منذ {days}+ يوم</div>', unsafe_allow_html=True)
+                html_table(df_nv.head(200).reset_index(drop=True), badge_cols=("Latest Status",),
+                           color_cols={"Days Since Last Visit": "#FFC000"}, height=320, index_col=True)
                 xlsx_nv = export_followup_customers(journey_df, days_threshold=days)
-                st.download_button(f"⬇️ تصدير قائمة {days} يوم",
+                st.download_button(f"⬇ تصدير قائمة {days} يوم Excel",
                                    data=xlsx_nv, file_name=f"Followup_{days}_Days.xlsx",
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
@@ -1192,32 +1322,59 @@ elif page == "أداء المندوبين":
     if rep_kpi_df is None or rep_kpi_df.empty:
         st.warning("لا توجد بيانات مندوبين"); st.stop()
 
-    kpi_row({
-        "عدد المندوبين":       len(rep_kpi_df),
-        "إجمالي الزيارات":    int(rep_kpi_df["Total Visits"].sum()),
-        # nunique on the full data — summing per-rep counts double-counts
-        # customers visited by more than one rep
-        "إجمالي العملاء":     int(classified["Customer Name"].nunique()),
-        "متوسط التحويل":      f"{rep_kpi_df['Conversion Rate (%)'].mean():.1f}%",
+    # ── Full ranking table (design order: table first) ──
+    section("ترتيب المندوبين — كل المقاييس", "FULL RANKING")
+    _rank_cols = ["Rank", "Sales Rep Name", "Total Visits", "Unique Customers",
+                  "Current Customers", "True Conversions", "Visits Per Day",
+                  "Conversion Rate (%)"]
+    _rank_df = rep_kpi_df[[c for c in _rank_cols if c in rep_kpi_df.columns]].reset_index(drop=True)
+    _rank_df = _rank_df.rename(columns={
+        "Rank": "#", "Total Visits": "إجمالي الزيارات", "Unique Customers": "عملاء فريدون",
+        "Current Customers": "حاليون", "True Conversions": "تحويلات حقيقية",
+        "Visits Per Day": "زيارات/يوم", "Conversion Rate (%)": "معدل التحويل %",
     })
-    st.markdown("<br>", unsafe_allow_html=True)
+    html_table(_rank_df,
+               color_cols={"إجمالي الزيارات": "#2DD4BF", "تحويلات حقيقية": "#4C9AFF",
+                           "حاليون": "#9CD07E"},
+               cond_colors={"معدل التحويل %": lambda v: "#70AD47" if float(v) >= 50 else ("#FFC000" if float(v) >= 25 else "#F08080")},
+               height=440)
 
-    section("جدول KPIs")
-    st.info(f"🥇 أفضل مندوب: **{rep_kpi_df.iloc[0]['Sales Rep Name']}** — {fmt_number(rep_kpi_df.iloc[0]['Total Visits'])} زيارة")
-    if "True Conversions" in rep_kpi_df.columns:
-        best_conv = rep_kpi_df.sort_values("True Conversions", ascending=False).iloc[0]
-        if best_conv["True Conversions"] > 0:
-            st.success(f"⭐ أكثر مندوب تحويلاً لعملاء حاليين: **{best_conv['Sales Rep Name']}** — {int(best_conv['True Conversions'])} عميل تحوّل فعلياً")
-    html_table(rep_kpi_df.reset_index(drop=True),
-               color_cols={"Total Visits": "#2DD4BF", "True Conversions": "#4C9AFF",
-                           "Current Customers": "#9CD07E"}, height=440)
+    # ── Two charts side by side ──
+    rc1, rc2 = st.columns(2)
+    for col, (title_f, fig) in zip([rc1, rc2], rep_figures[:2]):
+        with col:
+            section(title_f)
+            st.plotly_chart(fig, use_container_width=True)
 
-    section("المخططات")
-    for _, fig in rep_figures:
-        st.plotly_chart(fig, use_container_width=True)
+    # ── Weekday productivity matrix (design style: dots for zeros) ──
+    section("إنتاجية أيام الأسبوع", "WEEKDAY PRODUCTIVITY")
+    wp = weekday_productivity(classified)
+    if not wp["pivot"].empty:
+        _wd = wp["pivot"].copy()
+        _active = (_wd > 0).sum(axis=1).replace(0, 1)
+        _wd["متوسط/يوم عمل"] = (_wd.sum(axis=1) / _active).round(1)
+        _wd = _wd.sort_values("متوسط/يوم عمل", ascending=False)
+        _wd_show = _wd.reset_index().rename(columns={"Sales Rep Name": "المندوب"})
+        _wd_show["المندوب"] = _wd_show["المندوب"].replace("", "(بدون اسم)")
+        html_table(_wd_show,
+                   cond_colors={c: (lambda v: "#E6EDF3" if str(v) not in ("0", "0.0") else "#2A3540")
+                                for c in _wd_show.columns if c not in ("المندوب",)},
+                   height=380)
+    if not wp["stats"].empty:
+        with st.expander("📋 تفاصيل أيام العمل والفجوات"):
+            html_table(wp["stats"], color_cols={"متوسط زيارات/يوم عمل": "#2DD4BF"}, height=340)
 
-    # Monthly trend with filters
-    section("الزيارات الشهرية لكل مندوب")
+    # ── Note quality (design places it on this page) ──
+    section("جودة الملاحظات لكل مندوب", "NOTE QUALITY")
+    nq = note_quality(classified)
+    if not nq.empty:
+        html_table(nq,
+                   cond_colors={"ملاحظات فارغة %": lambda v: "#F08080" if float(v) >= 30 else ("#FFC000" if float(v) >= 10 else "#70AD47")},
+                   height=320)
+        st.caption("الملاحظات المنسوخة = ملاحظات متطابقة حرفياً لنفس المندوب (مؤشر تسجيل شكلي)")
+
+    # Monthly trend with filters (إضافي — ليس ضمن التصميم)
+    section("الزيارات الشهرية لكل مندوب", "MONTHLY TREND")
     if "Visit Date" in classified.columns:
         df_m = classified.copy()
         df_m["Visit Date"] = pd.to_datetime(df_m["Visit Date"], errors="coerce")
@@ -1263,15 +1420,6 @@ elif page == "أداء المندوبين":
                 pivot["الإجمالي"] = pivot.iloc[:,1:].sum(axis=1)
                 st.dataframe(pivot, use_container_width=True, hide_index=True)
 
-    # ── Weekday productivity ──
-    section("🕒 إنتاجية أيام الأسبوع")
-    wp = weekday_productivity(classified)
-    if wp["heatmap"] is not None:
-        st.plotly_chart(wp["heatmap"], use_container_width=True)
-    if not wp["stats"].empty:
-        st.markdown("**أيام العمل الفعلية لكل مندوب**")
-        html_table(wp["stats"], color_cols={"متوسط زيارات/يوم عمل": "#2DD4BF"}, height=340)
-
     section("تصدير")
     st.download_button("⬇️ Sales Rep KPI.xlsx",
                        data=export_sales_rep_kpi(rep_kpi_df),
@@ -1284,9 +1432,9 @@ elif page == "أداء المندوبين":
 # ═══════════════════════════════════════════════════════════════════
 
 elif page == "لوحة التحكم التنفيذية":
-    page_banner("لوحة التحكم التنفيذية", "EXECUTIVE DASHBOARD", PAGE_ACCENT["exec"])
 
     if not st.session_state["processing_done"]:
+        page_banner("لوحة التحكم التنفيذية", "EXECUTIVE DASHBOARD", PAGE_ACCENT["exec"])
         no_data_warning(); st.stop()
 
     view = get_view()
@@ -1294,30 +1442,42 @@ elif page == "لوحة التحكم التنفيذية":
     journey_df = view["journey"]
     rep_kpi_df = view["rep_kpi"]
     kpis = exec_data.get("kpis", {})
-    kpi_items = list(kpis.items())
 
-    c1,c2,c3,c4 = st.columns(4)
-    for col,(label,val) in zip([c1,c2,c3,c4], kpi_items[:4]):
-        with col: st.metric(label, fmt_number(val))
-    if len(kpi_items) > 4:
-        c5,c6,c7,c8 = st.columns(4)
-        for col,(label,val) in zip([c5,c6,c7,c8], kpi_items[4:8]):
-            with col: st.metric(label, fmt_number(val))
+    rng = st.session_state.get("date_range")
+    period_label = f"{str(rng[0])[:10]} ← {str(rng[1])[:10]}" if rng else "كل البيانات"
+    page_banner("لوحة التحكم التنفيذية", "EXECUTIVE DASHBOARD", PAGE_ACCENT["exec"],
+                right_html=(f"<div>الفترة: <span style='color:#E6EDF3'>{period_label}</span></div>"
+                            f"<div>{fmt_number(len(view['classified']))} زيارة · "
+                            f"{fmt_number(journey_df['Customer Name'].nunique() if not journey_df.empty else 0)} عميل</div>"))
+
+    # ── KPI cards (design: 8 Arabic cards with accents) ──
+    _KPI_SPEC = [
+        ("إجمالي الزيارات", "TOTAL VISITS",   "Total Visits",        "#2DD4BF"),
+        ("عملاء فريدون",    "UNIQUE",         "Unique Customers",    "#4C9AFF"),
+        ("حاليون",          "CURRENT",        "Current Customers",   "#70AD47"),
+        ("مستهدفون",        "TARGET",         "Target Customers",    "#FFC000"),
+        ("محتملون",         "POTENTIAL",      "Potential Customers", "#2E75B6"),
+        ("جدد",             "NEW",            "New Customers",       "#8FB4D9"),
+        ("سابقون",          "FORMER",         "Former Customers",    "#A9A9A9"),
+        ("غير مهتمين",      "NOT INTERESTED", "Not Interested",      "#F08080"),
+    ]
+    stat_cards([{"label": ar, "en": en, "value": fmt_number(kpis.get(key, 0)), "accent": acc}
+                for ar, en, key, acc in _KPI_SPEC], cols=4)
 
     # ── Month-over-month comparison ──
     funnel_pre = exec_data.get("funnel", {})
     cmp = period_comparison(view["classified"], funnel_pre.get("transitions", pd.DataFrame()))
     if cmp["metrics"]:
-        section(f"📅 مقارنة شهرية: {cmp['cur_label']} مقابل {cmp['prev_label']}")
-        metric_rows = [cmp["metrics"][i:i+4] for i in range(0, len(cmp["metrics"]), 4)]
-        for row_m in metric_rows:
-            cols_m = st.columns(len(row_m))
-            for col, (label, cur, prev) in zip(cols_m, row_m):
-                with col:
-                    st.metric(label, fmt_number(cur), delta=int(cur - prev))
+        section(f"مقارنة شهرية — {cmp['cur_label']} مقابل {cmp['prev_label']}", "MONTH OVER MONTH")
+        _cmp_items = []
+        for label, cur, prev in cmp["metrics"]:
+            d = int(cur - prev)
+            dt = ("▲ +" if d > 0 else "▼ " if d < 0 else "— ") + fmt_number(abs(d))
+            dc = "#70AD47" if d > 0 else "#F08080" if d < 0 else "#566573"
+            _cmp_items.append({"label": label, "value": fmt_number(cur), "delta": (dt, dc)})
+        stat_cards(_cmp_items, cols=7)
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    section("تريند الزيارات الشهري")
+    section("تريند الزيارات الشهري", "MONTHLY VISIT TREND")
     if exec_data.get("fig_trend"): st.plotly_chart(exec_data["fig_trend"], use_container_width=True)
 
     cl, cr = st.columns(2)
@@ -1342,30 +1502,23 @@ elif page == "لوحة التحكم التنفيذية":
         html_table(top_c.reset_index(drop=True), badge_cols=("Latest Status",),
                    color_cols={"Visit Count": "#2DD4BF"}, height=350, index_col=True)
 
-    section("⏰ عملاء يحتاجون متابعة (30+ يوم)", "FOLLOW-UP")
-    fu_df = exec_data.get("followup_df", pd.DataFrame())
-    if not fu_df.empty:
-        st.error(f"🚨 {len(fu_df)} عميل يحتاج متابعة")
-        html_table(fu_df.reset_index(drop=True), badge_cols=("Latest Status",),
-                   color_cols={"Days Since Last Visit": "#FFC000"}, height=320)
-
     # ── Funnel: customer transitions ──
     funnel = exec_data.get("funnel", {})
-    section("🔄 تحوّلات العملاء (Funnel)")
+    section("تحوّلات العملاء", "CUSTOMER FUNNEL")
     conv_df  = funnel.get("conversions", pd.DataFrame())
     churn_df = funnel.get("churn", pd.DataFrame())
     trans_df = funnel.get("transitions", pd.DataFrame())
 
     ret = conversion_retention(conv_df, journey_df)
-
-    fk1, fk2, fk3, fk4, fk5 = st.columns(5)
-    fk1.metric("إجمالي التحوّلات", fmt_number(len(trans_df)))
-    fk2.metric("تحوّلوا إلى عميل حالي", fmt_number(len(conv_df)))
     avg_days = conv_df["Days To Convert"].mean() if ("Days To Convert" in conv_df.columns and not conv_df.empty) else None
-    fk3.metric("متوسط أيام التحويل", f"{avg_days:.0f} يوم" if pd.notnull(avg_days) else "—")
-    fk4.metric("معدل بقاء المحوّلين", f"{ret['retention_pct']}%" if ret["retention_pct"] is not None else "—",
-               help="نسبة العملاء الذين تحولوا لـ(حالي) وما زالوا كذلك حتى الآن")
-    fk5.metric("عملاء متسربون", fmt_number(len(churn_df)))
+
+    stat_cards([
+        {"label": "إجمالي التحوّلات",      "value": fmt_number(len(trans_df))},
+        {"label": "تحوّلوا إلى عميل حالي", "value": fmt_number(len(conv_df)),  "color": "#70AD47"},
+        {"label": "متوسط أيام التحويل",    "value": f"{avg_days:.0f} يوم" if pd.notnull(avg_days) else "—"},
+        {"label": "معدل بقاء المحوّلين",   "value": f"{ret['retention_pct']}%" if ret["retention_pct"] is not None else "—", "color": "#2DD4BF"},
+        {"label": "عملاء متسربون",         "value": fmt_number(len(churn_df)), "color": "#F08080"},
+    ], cols=5)
 
     if not ret["lost_after_conversion"].empty:
         with st.expander(f"⚠️ عملاء تحوّلوا لحاليين ثم فُقدوا ({len(ret['lost_after_conversion'])})"):
@@ -1374,13 +1527,12 @@ elif page == "لوحة التحكم التنفيذية":
     if not trans_df.empty:
         fc1, fc2 = st.columns(2)
         with fc1:
-            st.markdown("**مصفوفة التحوّل (من ← إلى) — عدد التحوّلات**")
+            st.markdown("**مصفوفة التحوّل (من ← إلى)**")
             _mx = funnel.get("matrix", pd.DataFrame())
             if not _mx.empty:
-                _mxr = _mx.reset_index()
-                _mxr.columns = [STATUS_AR.get(c, COL_AR.get(c, c)) for c in _mxr.columns]
-                html_table(_mxr, height=300)
+                matrix_table(_mx, index_label="من ↓ / إلى ←", height=300)
         with fc2:
+            st.markdown("**تحويلات لعميل حالي على يد كل مندوب**")
             if funnel.get("fig_rep_conversions") is not None:
                 st.plotly_chart(funnel["fig_rep_conversions"], use_container_width=True)
 
@@ -1472,16 +1624,15 @@ elif page == "خطة المتابعة":
     promises_df = view["promises"]
 
     due_now   = promises_df[promises_df["حالة الوعد"] == "🔥 مستحق الآن"] if not promises_df.empty else pd.DataFrame()
-    upcoming  = promises_df[promises_df["حالة الوعد"] == "⏳ لم يستحق بعد"] if not promises_df.empty else pd.DataFrame()
+    followed  = promises_df[promises_df["حالة الوعد"] == "🔁 تمت متابعته"] if not promises_df.empty else pd.DataFrame()
     hot       = nbv_df[nbv_df["أولوية الزيارة"] >= 50] if not nbv_df.empty else pd.DataFrame()
 
-    kpi_row({
-        "وعود مستحقة الآن 🔥": len(due_now),
-        "وعود قادمة ⏳":       len(upcoming),
-        "عملاء أولوية قصوى":   len(hot),
-        "إجمالي قائمة الزيارات": len(nbv_df),
-    })
-    st.markdown("<br>", unsafe_allow_html=True)
+    stat_cards([
+        {"label": "أولويات عاجلة",     "value": fmt_number(len(hot)),         "color": "#F08080"},
+        {"label": "وعود مسجّلة",       "value": fmt_number(len(promises_df))},
+        {"label": "وعود مستحقة الآن",  "value": fmt_number(len(due_now)),     "color": "#FFC000"},
+        {"label": "وعود تمت متابعتها", "value": fmt_number(len(followed)),    "color": "#70AD47"},
+    ], cols=4)
 
     # ── Filters ──
     pf1, pf2 = st.columns(2)
@@ -1502,19 +1653,22 @@ elif page == "خطة المتابعة":
         return out
 
     # ── Section 1: Next Best Visit ──
-    section("🗓️ أولويات الزيارة القادمة")
+    section("أولويات الزيارة القادمة", "NEXT BEST VISITS")
     st.markdown("ترتيب ذكي: وعود مستحقة، محتملون قريبون من القرار، متسربون للإنقاذ، وعملاء حاليون في خطر.")
     nbv_f = _pfilter(nbv_df)
-    top_n = st.slider("عدد العملاء المعروضين", 10, 200, 50, 10, key="ac_topn")
+    top_n = st.slider("عدد العملاء المعروضين", 10, 200, 40, 10, key="ac_topn")
     show_nbv = nbv_f.head(top_n)
-    html_table(show_nbv.reset_index(drop=True),
+    _nbv_cols = [c for c in ["Customer Name", "أولوية الزيارة", "Latest Status",
+                             "سبب الأولوية", "Sales Rep Name", "Governorate"]
+                 if c in show_nbv.columns]
+    html_table(show_nbv[_nbv_cols].reset_index(drop=True),
                badge_cols=("Latest Status",),
-               color_cols={"أولوية الزيارة": "#F08080"}, height=440, index_col=True)
+               color_cols={"أولوية الزيارة": "#F08080"}, height=460, index_col=True)
     if not show_nbv.empty:
-        _xlsx_download(show_nbv, "⬇️ تصدير خطة الزيارات Excel", "Visit_Priority_Plan.xlsx", key="dl_nbv")
+        _xlsx_download(show_nbv, "⬇ تصدير خطة الزيارات Excel", "Visit_Priority_Plan.xlsx", key="dl_nbv")
 
     # ── Section 2: Promise tracker ──
-    section("🤝 متتبع الوعود")
+    section("الوعود المسجّلة في الملاحظات", "PROMISES TRACKER")
     st.markdown("وعود مستخرجة تلقائياً من ملاحظات الزيارات (تجربة، بدء بعد الدورة، ميعاد متفق عليه...).")
     if promises_df.empty:
         st.info("لا توجد وعود مستخرجة من الملاحظات")
@@ -1525,12 +1679,22 @@ elif page == "خطة المتابعة":
         if sel_pstate != "الكل":
             prom_f = prom_f[prom_f["حالة الوعد"] == sel_pstate]
         show_p = prom_f.copy()
-        for dc in ["تاريخ الوعد", "الاستحقاق"]:
-            show_p[dc] = pd.to_datetime(show_p[dc], errors="coerce").dt.strftime("%Y-%m-%d")
+        show_p["تاريخ الوعد"] = pd.to_datetime(show_p["تاريخ الوعد"], errors="coerce").dt.strftime("%Y-%m-%d")
+        _p_cols = [c for c in ["Customer Name", "نوع الوعد", "تاريخ الوعد",
+                               "حالة الوعد", "الحالة الحالية", "Sales Rep Name"]
+                   if c in show_p.columns]
+
+        def _pstate_color(v):
+            s = str(v)
+            return ("#F08080" if "مستحق" in s else
+                    "#70AD47" if "تحول" in s else
+                    "#4C9AFF" if "متابع" in s else "#FFC000")
+
         st.info(f"🤝 {len(show_p):,} وعد")
-        html_table(show_p.reset_index(drop=True), badge_cols=("الحالة الحالية",), height=420)
+        html_table(show_p[_p_cols].reset_index(drop=True),
+                   cond_colors={"حالة الوعد": _pstate_color}, height=420)
         if not show_p.empty:
-            _xlsx_download(show_p, "⬇️ تصدير الوعود Excel", "Promise_Tracker.xlsx", key="dl_prom")
+            _xlsx_download(prom_f, "⬇ تصدير الوعود Excel", "Promise_Tracker.xlsx", key="dl_prom")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1552,32 +1716,32 @@ elif page == "المنافسون":
         st.stop()
 
     losing = comp["losing_to"]
-    kpi_row({
-        "منافسون مذكورون":        mentions["المنافس"].nunique(),
-        "عملاء مرتبطون بمنافس":   mentions["Customer Name"].nunique(),
-        "عملاء نخسرهم لمنافس":    losing["Customer Name"].nunique() if not losing.empty else 0,
-        "إشارات إجمالية":         len(mentions),
-    })
-    st.markdown("<br>", unsafe_allow_html=True)
 
+    # ── Top row: losing-to table (left) | top competitors chart (right) ──
     cc1, cc2 = st.columns([1, 1])
     with cc1:
+        section("عملاء نخسرهم لمنافس", "LOSING TO")
+        if losing.empty:
+            st.success("لا يوجد")
+        else:
+            show_l = losing[["المنافس", "Customer Name", "الحالة الحالية", "Governorate"]].head(60).copy()
+            show_l.columns = ["المنافس", "العميل", "الحالة", "المحافظة"]
+            html_table(show_l, color_cols={"المنافس": "#F08080"}, height=390)
+    with cc2:
+        section("أكثر المنافسين ذِكراً", "TOP COMPETITORS")
         if comp["fig_competitors"] is not None:
             st.plotly_chart(comp["fig_competitors"], use_container_width=True)
-    with cc2:
-        section("المنافس × المحافظة (عملاء)", "TOP 10")
-        if not comp["by_gov_matrix"].empty:
-            html_table(comp["by_gov_matrix"].reset_index(), height=500)
 
-    section("🚨 عملاء نخسرهم لمنافس (مستهدف / غير مهتم / سابق)")
-    if losing.empty:
-        st.success("لا يوجد")
-    else:
-        show_l = losing.copy()
-        if "Visit Date" in show_l.columns:
-            show_l["Visit Date"] = pd.to_datetime(show_l["Visit Date"], errors="coerce").dt.strftime("%Y-%m-%d")
-        html_table(show_l.reset_index(drop=True), badge_cols=("الحالة الحالية",),
-                   color_cols={"المنافس": "#F08080"}, height=420)
+    # ── Full-width matrix ──
+    section("مصفوفة المنافسين حسب المحافظة", "TOP 10")
+    if not comp["by_gov_matrix"].empty:
+        matrix_table(comp["by_gov_matrix"], index_label="المحافظة", height=520)
+
+    if not losing.empty:
+        show_export = losing.copy()
+        if "Visit Date" in show_export.columns:
+            show_export["Visit Date"] = pd.to_datetime(show_export["Visit Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+        _xlsx_download(show_export, "⬇ تصدير قائمة العملاء المهددين Excel", "Losing_To_Competitors.xlsx", key="dl_lose")
         _xlsx_download(show_l, "⬇️ تصدير القائمة Excel", "Losing_To_Competitors.xlsx", key="dl_lose")
 
 
@@ -1608,13 +1772,17 @@ elif page == "عميل 360":
     jrow = journey_df[journey_df["Customer Name"] == sel360].iloc[0]
     cust_v = classified_df[classified_df["Customer Name"] == sel360].sort_values("Visit Date")
 
-    # ── Header metrics ──
-    h1, h2, h3, h4, h5 = st.columns(5)
-    h1.metric("الحالة الحالية", jrow["Latest Status"])
-    h2.metric("عدد الزيارات", int(jrow["Visit Count"]))
-    h3.metric("منذ آخر زيارة", f"{int(jrow['Days Since Last Visit'])} يوم" if pd.notnull(jrow["Days Since Last Visit"]) else "—")
-    h4.metric("المحافظة", jrow.get("Governorate") or "—")
-    h5.metric("المندوب", jrow.get("Sales Rep Name") or "—")
+    # ── Header cards (design) ──
+    _fv = str(pd.to_datetime(jrow.get("First Visit Date"), errors="coerce"))[:10]
+    _lv = str(pd.to_datetime(jrow.get("Last Visit Date"), errors="coerce"))[:10]
+    stat_cards([
+        {"label": "الحالة الأخيرة", "value": STATUS_AR.get(jrow["Latest Status"], jrow["Latest Status"]),
+         "color": STATUS_COLORS.get(jrow["Latest Status"], "#E6EDF3")},
+        {"label": "عدد الزيارات", "value": fmt_number(int(jrow["Visit Count"])), "color": "#2DD4BF"},
+        {"label": "أول زيارة", "value": _fv if _fv != "NaT" else "—"},
+        {"label": "آخر زيارة", "value": _lv if _lv != "NaT" else "—"},
+        {"label": "المحافظة", "value": jrow.get("Governorate") or "—"},
+    ], cols=5)
 
     # ── Alerts for this customer ──
     promises_df = view["promises"]
@@ -1675,26 +1843,22 @@ elif page == "جودة البيانات والمحرك":
 
     master_df = st.session_state["classified_df"]
 
-    # ── Data health ──
-    section("🩺 صحة البيانات")
+    # ── Data health (design: percent-based colored KPIs) ──
     dq = data_quality_summary(master_df)
-    q1, q2, q3, q4, q5 = st.columns(5)
-    q1.metric("زيارات بدون مندوب", fmt_number(dq["no_rep"]),
-              delta=f"-{dq['no_rep']/max(1,dq['total'])*100:.0f}%" if dq["no_rep"] else None,
-              delta_color="inverse")
-    q2.metric("بدون محافظة", fmt_number(dq["no_gov"]))
-    q3.metric("بدون ملاحظات", fmt_number(dq["no_note"]))
-    q4.metric("بدون تاريخ", fmt_number(dq["no_date"]))
-    q5.metric("صفوف مكررة تماماً", fmt_number(dq["exact_dups"]))
+    _pct = lambda n: f"{n / max(1, dq['total']) * 100:.1f}%"
+    stat_cards([
+        {"label": "إجمالي السجلات", "value": fmt_number(dq["total"])},
+        {"label": "بلا مندوب",      "value": _pct(dq["no_rep"]),
+         "color": "#FFC000" if dq["no_rep"] else "#70AD47"},
+        {"label": "بلا محافظة",     "value": _pct(dq["no_gov"]),
+         "color": "#FFC000" if dq["no_gov"] else "#70AD47"},
+        {"label": "بلا ملاحظة",     "value": _pct(dq["no_note"]),
+         "color": "#F08080" if dq["no_note"] else "#70AD47"},
+        {"label": "تكرارات مطابقة", "value": fmt_number(dq["exact_dups"]),
+         "color": "#F08080" if dq["exact_dups"] else "#70AD47"},
+    ], cols=5)
     if dq["no_rep"] > dq["total"] * 0.1:
         st.warning(f"⚠️ **{dq['no_rep']:,}** زيارة ({dq['no_rep']/max(1,dq['total'])*100:.0f}%) بدون اسم مندوب — راجع ملف المصدر، هذه الزيارات لا تُحسب لأي مندوب في التقارير.")
-
-    # ── Note quality per rep ──
-    section("📝 جودة تسجيل الملاحظات لكل مندوب")
-    nq = note_quality(master_df)
-    if not nq.empty:
-        html_table(nq, color_cols={"ملاحظات فارغة %": "#F08080"}, height=380)
-        st.caption("الملاحظات المنسوخة = ملاحظات متطابقة حرفياً لنفس المندوب (مؤشر تسجيل شكلي)")
 
     # ── Engine accuracy vs manual ──
     section("🎯 دقة المحرك مقابل التصنيف اليدوي")
@@ -1732,6 +1896,26 @@ elif page == "جودة البيانات والمحرك":
             for _, r in phrases.iterrows())
         st.markdown(f'<div class="section-card" style="direction:rtl">{chips}</div>',
                     unsafe_allow_html=True)
+
+    # ── Completeness detail grid (design) ──
+    section("إحصائيات الاكتمال", "COMPLETENESS")
+    from classification_engine import ACTIVE_RULES as _RULES
+    _details = [
+        ("بلا تاريخ", fmt_number(dq["no_date"])),
+        ("بلا مندوب (عدد)", fmt_number(dq["no_rep"])),
+        ("بلا محافظة (عدد)", fmt_number(dq["no_gov"])),
+        ("بلا ملاحظة (عدد)", fmt_number(dq["no_note"])),
+        ("تكرارات مطابقة (عدد)", fmt_number(dq["exact_dups"])),
+        ("إجمالي قواعد المحرك", fmt_number(len(_RULES))),
+    ]
+    _dcards = "".join(
+        f'<div style="background:#10171D;border:1px solid #1D262F;border-radius:8px;'
+        f'padding:11px 14px;display:flex;justify-content:space-between;align-items:center">'
+        f'<span style="font-size:12px;color:#8B98A5">{lbl}</span>'
+        f'<span style="font-size:15px;font-weight:700;color:#E6EDF3">{val}</span></div>'
+        for lbl, val in _details)
+    st.markdown(f'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;direction:rtl">{_dcards}</div>',
+                unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════════

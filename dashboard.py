@@ -12,7 +12,7 @@ from plotly.subplots import make_subplots
 
 import plotly.io as pio
 
-from utils import safe_str, days_since, STATUS_COLORS, NON_STATUS_LABELS
+from utils import safe_str, days_since, STATUS_COLORS, NON_STATUS_LABELS, STATUS_AR
 
 # Brand palette (WDI dark design)
 PRIMARY   = "#2DD4BF"   # teal
@@ -117,15 +117,14 @@ def customer_analytics_summary(classified_df: pd.DataFrame, journey_df: pd.DataF
 
     colors = [STATUS_COLORS.get(s, PRIMARY) for s in status_counts["Status"]]
     fig_pie = go.Figure(go.Pie(
-        labels=status_counts["Status"],
+        labels=[STATUS_AR.get(s, s) for s in status_counts["Status"]],
         values=status_counts["Count"],
-        marker_colors=colors,
-        hole=0.4,
+        marker=dict(colors=colors, line=dict(color="#161D24", width=2)),
+        hole=0.45,
         textinfo="label+percent",
-        hovertemplate="<b>%{label}</b><br>Count: %{value}<br>Share: %{percent}<extra></extra>",
+        hovertemplate="<b>%{label}</b><br>%{value}<br>%{percent}<extra></extra>",
     ))
     fig_pie.update_layout(
-        title="Customer Status Distribution",
         template=PLOTLY_TEMPLATE,
         paper_bgcolor=BG,
         legend=dict(orientation="v", x=1.0, y=0.5),
@@ -146,7 +145,6 @@ def customer_analytics_summary(classified_df: pd.DataFrame, journey_df: pd.DataF
         gov_counts.head(15), x="Governorate", y="Unique Customers",
         color_discrete_sequence=[SECONDARY],
         template=PLOTLY_TEMPLATE,
-        title="Unique Customers by Governorate (Top 15)",
         text="Unique Customers",
     )
     fig_gov.update_traces(textposition="outside")
@@ -266,7 +264,7 @@ def funnel_data(classified_df: pd.DataFrame, journey_df: pd.DataFrame) -> dict:
         fig = px.bar(
             rep_conv, x="Conversions", y="Sales Rep Name", orientation="h",
             color_discrete_sequence=[ACCENT], template=PLOTLY_TEMPLATE,
-            title="عملاء تحولوا إلى (حالي) على يد كل مندوب", text="Conversions",
+            text="Conversions",
         )
         fig.update_traces(textposition="outside")
         fig.update_layout(paper_bgcolor=BG, margin=dict(l=20, r=40, t=50, b=20))
@@ -350,63 +348,35 @@ def sales_rep_kpi(classified_df: pd.DataFrame, journey_df: pd.DataFrame) -> tupl
     kpi_df = kpi_df.sort_values("Total Visits", ascending=False).reset_index(drop=True)
     kpi_df.insert(0, "Rank", range(1, len(kpi_df) + 1))
 
-    # ── Charts ──
+    # ── Charts (per the approved design: two horizontal bars) ──
     figures = []
 
-    # 1. Total visits bar
+    # 1. Total visits per rep — horizontal teal
+    by_visits = kpi_df.sort_values("Total Visits")
     fig1 = px.bar(
-        kpi_df, x="Sales Rep Name", y="Total Visits",
-        color="Total Visits",
-        color_continuous_scale=[[0, "#14655C"], [1, PRIMARY]],
-        template=PLOTLY_TEMPLATE,
-        title="Total Visits per Sales Rep",
+        by_visits, x="Total Visits", y="Sales Rep Name", orientation="h",
+        color_discrete_sequence=[PRIMARY], template=PLOTLY_TEMPLATE,
         text="Total Visits",
     )
-    fig1.update_traces(textposition="outside")
-    fig1.update_layout(paper_bgcolor=BG, showlegend=False,
-                       margin=dict(l=20, r=20, t=50, b=100),
-                       xaxis_tickangle=-35)
-    figures.append(("Total Visits per Sales Rep", fig1))
+    fig1.update_traces(textposition="outside", marker=dict(cornerradius=4))
+    fig1.update_layout(paper_bgcolor=BG, showlegend=False, height=380,
+                       margin=dict(l=10, r=45, t=10, b=10),
+                       xaxis_title="", yaxis_title="")
+    figures.append(("إجمالي الزيارات لكل مندوب", fig1))
 
-    # 2. Conversion rate
+    # 2. Conversion rate — horizontal green
+    by_rate = kpi_df.sort_values("Conversion Rate (%)")
     fig2 = px.bar(
-        kpi_df.sort_values("Conversion Rate (%)"), x="Conversion Rate (%)", y="Sales Rep Name",
-        orientation="h",
-        color="Conversion Rate (%)",
-        color_continuous_scale=[[0, "#2C4A22"], [1, ACCENT]],
-        template=PLOTLY_TEMPLATE,
-        title="Conversion Rate (%) by Sales Rep",
+        by_rate, x="Conversion Rate (%)", y="Sales Rep Name", orientation="h",
+        color_discrete_sequence=[ACCENT], template=PLOTLY_TEMPLATE,
         text="Conversion Rate (%)",
     )
-    fig2.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-    fig2.update_layout(paper_bgcolor=BG, showlegend=False,
-                       margin=dict(l=20, r=20, t=50, b=20))
-    figures.append(("Conversion Rate", fig2))
-
-    # 3. Customer status stacked bar
-    status_cols = ["Current Customers", "New Customers", "Potential Customers"]
-    available   = [c for c in status_cols if c in kpi_df.columns]
-    if available:
-        fig3 = go.Figure()
-        colors_map = {
-            "Current Customers":   ACCENT,
-            "New Customers":       PRIMARY,
-            "Potential Customers": SECONDARY,
-        }
-        for col in available:
-            fig3.add_trace(go.Bar(
-                name=col, x=kpi_df["Sales Rep Name"], y=kpi_df[col],
-                marker_color=colors_map.get(col, "#888"),
-            ))
-        fig3.update_layout(
-            barmode="stack",
-            title="Customer Status by Sales Rep",
-            template=PLOTLY_TEMPLATE,
-            paper_bgcolor=BG,
-            margin=dict(l=20, r=20, t=50, b=100),
-            xaxis_tickangle=-35,
-        )
-        figures.append(("Customer Status by Rep", fig3))
+    fig2.update_traces(texttemplate="%{text:.1f}%", textposition="outside",
+                       marker=dict(cornerradius=4))
+    fig2.update_layout(paper_bgcolor=BG, showlegend=False, height=380,
+                       margin=dict(l=10, r=45, t=10, b=10),
+                       xaxis_title="", yaxis_title="")
+    figures.append(("معدل التحويل % لكل مندوب", fig2))
 
     return kpi_df, figures
 
@@ -473,7 +443,6 @@ def executive_dashboard_data(
             marker=dict(size=6),
         ))
         fig_trend.update_layout(
-            title="Monthly Visit Trend",
             template=PLOTLY_TEMPLATE,
             paper_bgcolor=BG,
             legend=dict(orientation="h", y=-0.2),
@@ -490,16 +459,15 @@ def executive_dashboard_data(
         fig_rank = px.bar(
             kpi_df.head(10), x="Total Visits", y="Sales Rep Name",
             orientation="h",
-            color="Total Visits",
-            color_continuous_scale=[[0, "#14655C"], [1, PRIMARY]],
+            color_discrete_sequence=[PRIMARY],
             template=PLOTLY_TEMPLATE,
-            title="Top Sales Reps by Total Visits",
             text="Total Visits",
         )
-        fig_rank.update_traces(textposition="outside")
+        fig_rank.update_traces(textposition="outside", marker=dict(cornerradius=4))
         fig_rank.update_layout(
             paper_bgcolor=BG, showlegend=False,
-            margin=dict(l=20, r=20, t=50, b=20),
+            margin=dict(l=10, r=45, t=10, b=10),
+            xaxis_title="", yaxis_title="",
             yaxis=dict(autorange="reversed"),
         )
         result["fig_rep_ranking"] = fig_rank
@@ -513,15 +481,14 @@ def executive_dashboard_data(
 
     colors = [STATUS_COLORS.get(s, PRIMARY) for s in status_counts["Status"]]
     fig_status = go.Figure(go.Pie(
-        labels=status_counts["Status"],
+        labels=[STATUS_AR.get(s, s) for s in status_counts["Status"]],
         values=status_counts["Count"],
-        marker_colors=colors,
+        marker=dict(colors=colors, line=dict(color="#161D24", width=2)),
         hole=0.45,
-        textinfo="label+percent+value",
-        hovertemplate="<b>%{label}</b><br>Customers: %{value}<br>%{percent}<extra></extra>",
+        textinfo="label+percent",
+        hovertemplate="<b>%{label}</b><br>%{value}<br>%{percent}<extra></extra>",
     ))
     fig_status.update_layout(
-        title="Customer Status Distribution",
         template=PLOTLY_TEMPLATE,
         paper_bgcolor=BG,
         margin=dict(l=20, r=20, t=50, b=20),
@@ -544,7 +511,6 @@ def executive_dashboard_data(
             orientation="h",
             color_discrete_sequence=[SECONDARY],
             template=PLOTLY_TEMPLATE,
-            title="Customers by Governorate (Top 15)",
             text="Unique Customers",
         )
         fig_gov.update_traces(textposition="outside")
@@ -573,7 +539,7 @@ def executive_dashboard_data(
             dist_counts, path=["District"], values="Unique Customers",
             color="Unique Customers",
             color_continuous_scale=[[0, "#14655C"], [1, PRIMARY]],
-            title="Customers by District",
+            
         )
         fig_dist.update_layout(paper_bgcolor=BG, margin=dict(l=10, r=10, t=50, b=10))
         result["fig_district"] = fig_dist

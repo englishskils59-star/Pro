@@ -299,21 +299,27 @@ def competitor_mentions(classified_df: pd.DataFrame,
                .reset_index(name="عدد العملاء").sort_values("عدد العملاء", ascending=True))
     out["by_competitor"] = by_comp
 
-    fig = px.bar(by_comp, x="عدد العملاء", y="المنافس", orientation="h",
-                 color_discrete_sequence=["#C00000"], template=PLOTLY_TEMPLATE,
-                 title="عملاء مرتبطون بكل منافس (من ملاحظات الزيارات)", text="عدد العملاء")
-    fig.update_traces(textposition="outside")
-    fig.update_layout(paper_bgcolor=BG, margin=dict(l=20, r=40, t=50, b=20),
-                      height=max(400, 24 * len(by_comp)))
+    # top-12 only, soft red, no axis titles — per the approved design
+    top12 = by_comp.tail(12)
+    fig = px.bar(top12, x="عدد العملاء", y="المنافس", orientation="h",
+                 color_discrete_sequence=["#F08080"], template=PLOTLY_TEMPLATE,
+                 text="عدد العملاء")
+    fig.update_traces(textposition="outside", marker=dict(cornerradius=4))
+    fig.update_layout(paper_bgcolor=BG, margin=dict(l=10, r=45, t=10, b=10),
+                      height=360, xaxis_title="", yaxis_title="")
     out["fig_competitors"] = fig
 
-    # competitor × governorate matrix (top 10 competitors)
-    top_comps = by_comp.sort_values("عدد العملاء", ascending=False).head(10)["المنافس"]
+    # competitor × governorate matrix — columns ordered by competitor size,
+    # rows (governorates) ordered by total mentions, top 15
+    top_comps = by_comp.sort_values("عدد العملاء", ascending=False).head(10)["المنافس"].tolist()
     mm = m[m["المنافس"].isin(top_comps)]
-    out["by_gov_matrix"] = mm.pivot_table(
+    matrix = mm.pivot_table(
         index="Governorate", columns="المنافس",
         values="Customer Name", aggfunc="nunique", fill_value=0,
     )
+    matrix = matrix.reindex(columns=[c for c in top_comps if c in matrix.columns])
+    matrix = matrix.loc[matrix.sum(axis=1).sort_values(ascending=False).index].head(15)
+    out["by_gov_matrix"] = matrix
 
     # who are we losing to: mentioned competitor + latest status negative
     lose = (m[m["الحالة الحالية"].isin(["Not Interested", "Former Customer", "Target Customer"])]
@@ -334,8 +340,8 @@ _WEEKDAY_ORDER = ["السبت", "الأحد", "الاثنين", "الثلاثا�
 
 
 def weekday_productivity(classified_df: pd.DataFrame) -> dict:
-    """Visits by weekday per rep (heatmap) + active-days stats per rep."""
-    out = {"heatmap": None, "stats": pd.DataFrame()}
+    """Visits by weekday per rep: pivot matrix (design table) + stats per rep."""
+    out = {"heatmap": None, "pivot": pd.DataFrame(), "stats": pd.DataFrame()}
     if classified_df.empty or "Visit Date" not in classified_df.columns:
         return out
 
@@ -347,14 +353,7 @@ def weekday_productivity(classified_df: pd.DataFrame) -> dict:
     pivot = (df.pivot_table(index="Sales Rep Name", columns="اليوم",
                             values="Customer Name", aggfunc="count", fill_value=0)
              .reindex(columns=[c for c in _WEEKDAY_ORDER], fill_value=0))
-
-    fig = px.imshow(pivot, text_auto=True, aspect="auto",
-                    color_continuous_scale=[[0, "#10171D"], [1, PRIMARY]],
-                    title="توزيع الزيارات على أيام الأسبوع لكل مندوب")
-    fig.update_layout(paper_bgcolor=BG, template=PLOTLY_TEMPLATE,
-                      margin=dict(l=20, r=20, t=50, b=20),
-                      height=max(400, 32 * len(pivot)))
-    out["heatmap"] = fig
+    out["pivot"] = pivot
 
     # active days per rep
     stats = []
