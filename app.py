@@ -12,7 +12,7 @@ import io
 from utils import (
     load_excel, validate_columns, clean_dataframe,
     basic_stats, fmt_number, fmt_pct, STATUS_COLORS, REQUIRED_COLUMNS,
-    deduplicate_customer_names,
+    find_name_merge_candidates,
 )
 from classification_engine import (
     classify_dataframe, build_customer_journey,
@@ -442,6 +442,33 @@ def _xlsx_download(df: pd.DataFrame, label: str, file_name: str, key: str):
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
+def merge_candidates(df: pd.DataFrame, n_merges: int) -> pd.DataFrame:
+    """Similar-name groups, recomputed only when the data or the merge list changes
+    (so ticking a checkbox doesn't rescan 12k names)."""
+    key = (len(df), int(df["Customer Name"].nunique()), n_merges)
+    if st.session_state.get("_cand_key") != key:
+        with st.spinner("🔎 البحث عن الأسماء المتشابهة..."):
+            st.session_state["_cand_df"] = find_name_merge_candidates(df)
+        st.session_state["_cand_key"] = key
+    return st.session_state["_cand_df"]
+
+
+def refresh_after_name_merges():
+    """Re-apply the approved merges and rebuild everything — once for the whole batch."""
+    with st.spinner("🔄 تطبيق التوحيد وإعادة بناء التحليلات..."):
+        st.session_state["classified_df"] = apply_name_merges(st.session_state["classified_df"])
+        st.session_state["journey_df"] = build_customer_journey(st.session_state["classified_df"])
+    rebuild_dashboards()
+    with st.spinner("💾 حفظ البيانات..."):
+        save_session(
+            classified_df=st.session_state["classified_df"],
+            journey_df=st.session_state["journey_df"],
+            rep_kpi_df=st.session_state["rep_kpi_df"],
+            file_name=st.session_state.get("file_name", ""),
+        )
+    st.session_state["_cand_key"] = None      # candidates changed — force a rescan
+
+
 def reclassify_and_save():
     """Re-run classification on the loaded data (after rule/merge changes),
     re-apply manual overrides, rebuild everything and persist."""
@@ -839,11 +866,17 @@ elif page == "تصنيف العملاء":
             _log["Visit Date"] = pd.to_datetime(_log["Visit Date"], errors="coerce").dt.strftime("%Y-%m-%d")
             _log["Visit Notes"] = _log["Visit Notes"].astype(str).str.slice(0, 90)
             _log["Confidence Score"] = pd.to_numeric(_log["Confidence Score"], errors="coerce").fillna(0).round(0).astype(int)
+            # سبب التصنيف — الكلمات التي التقطها المحرك (قابلية التفسير الكاملة)
+            _log["سبب التصنيف"] = (_log["Matched Keywords"].astype(str).str.slice(0, 60)
+                                    .replace({"": "—", "nan": "—"})
+                                    if "Matched Keywords" in _log.columns else "—")
             _log_cols = [c for c in ["Visit Date", "Customer Name", "Sales Rep Name",
-                                     "Display Status", "Confidence Score", "Visit Notes"]
+                                     "Display Status", "Confidence Score", "سبب التصنيف",
+                                     "Visit Notes"]
                          if c in _log.columns]
             html_table(_log[_log_cols].reset_index(drop=True),
                        badge_cols=("Display Status",),
+                       color_cols={"سبب التصنيف": "#2DD4BF"},
                        cond_colors={"Confidence Score": lambda v: "#70AD47" if float(v) >= 70 else ("#FFC000" if float(v) >= 40 else "#F08080")},
                        height=480)
             _xlsx_download(filtered, "⬇ تصدير النتائج المفلترة Excel", "Classification_Filtered.xlsx", key="dl_clf")
@@ -1114,60 +1147,96 @@ elif page == "تصنيف العملاء":
         لا يتم أي دمج تلقائي: كل مجموعة تحتاج **موافقتك** هنا، ويمكن التراجع عن أي دمج لاحقاً.
         """)
 
-        tmp = deduplicate_customer_names(master_df)
-        if "Governorate" not in tmp.columns:
-            tmp["Governorate"] = ""
-        grp = (tmp.groupby(["Customer Name Cleaned", "Governorate"]).agg(
-                    Variants=("Customer Name", lambda x: sorted(set(x))),
-                    Visits=("Customer Name", "count"),
-               ).reset_index())
-        cand = grp[(grp["Variants"].apply(len) > 1) & (grp["Customer Name Cleaned"] != "")]
-
         merges = load_name_merges()
-        mc1, mc2, mc3 = st.columns(3)
-        mc1.metric("مجموعات مقترحة للمراجعة", len(cand))
-        mc2.metric("دمج معتمد", merges["Canonical"].nunique() if not merges.empty else 0)
-        mc3.metric("أسماء موحّدة", len(merges))
+        cand = merge_candidates(master_df, len(merges))
+
+        dup_customers = int(cand["Variants"].apply(len).sum() - len(cand)) if not cand.empty else 0
+        stat_cards([
+            {"label": "مجموعات مقترحة", "value": fmt_number(len(cand)), "accent": "#2DD4BF"},
+            {"label": "آمنة (فروق إملائية)", "value": fmt_number(int((~cand["Risky"]).sum()) if not cand.empty else 0),
+             "color": "#9CD07E", "accent": "#70AD47"},
+            {"label": "تحتاج نظرك", "value": fmt_number(int(cand["Risky"].sum()) if not cand.empty else 0),
+             "color": "#FFC000", "accent": "#FFC000"},
+            {"label": "عملاء مكررون سيُحذفون", "value": fmt_number(dup_customers), "accent": "#4C9AFF"},
+            {"label": "أسماء موحّدة سابقاً", "value": fmt_number(len(merges)), "accent": "#8B98A5"},
+        ], cols=5)
 
         if cand.empty:
             st.success("✅ لا توجد أسماء متشابهة تحتاج مراجعة داخل نفس المحافظة")
         else:
-            cand = cand.copy()
-            cand["_label"] = cand.apply(
-                lambda r: f"{r['Customer Name Cleaned']} — {r['Governorate'] or 'بدون محافظة'} ({len(r['Variants'])} اسم)",
-                axis=1)
-            sel_grp = st.selectbox("اختر مجموعة للمراجعة", cand["_label"].tolist(), key="merge_grp")
-            row = cand[cand["_label"] == sel_grp].iloc[0]
+            st.markdown(
+                "راجع الجدول ثم اضغط زراً واحداً لتنفيذ كل ما هو محدَّد. "
+                "**المجموعات المعلَّمة ⚠️ غير محددة افتراضياً** — اسمها كلمة واحدة وقد تكون لأشخاص مختلفين.")
 
-            # Visit counts per variant
-            variant_counts = (master_df[master_df["Customer Name"].isin(row["Variants"])]
-                              .groupby("Customer Name").size().rename("عدد الزيارات").reset_index())
-            st.dataframe(variant_counts, use_container_width=True, hide_index=True)
+            table = pd.DataFrame({
+                "دمج":            ~cand["Risky"],
+                "الاسم الموحّد":   cand["Canonical"],
+                "الأسماء التي ستُدمج فيه": [
+                    " | ".join(f"{v} ({r['Counts'][v]})" for v in r["Variants"] if v != r["Canonical"])
+                    for _, r in cand.iterrows()],
+                "المحافظة":       cand["Governorate"].replace("", "—"),
+                "الزيارات":       cand["Visits"],
+                "الحالة":         np.where(cand["Risky"], "⚠️ راجعها", "✅ آمنة"),
+            })
+            edited = st.data_editor(
+                table, hide_index=True, height=420, use_container_width=True, key="merge_editor",
+                column_config={"دمج": st.column_config.CheckboxColumn("دمج", width="small")},
+                disabled=["الاسم الموحّد", "الأسماء التي ستُدمج فيه", "المحافظة", "الزيارات", "الحالة"],
+            )
 
-            canonical = st.radio("الاسم الموحّد (الذي ستُنسب إليه كل الزيارات)",
-                                 row["Variants"], key="merge_canon")
-            if st.button("✅ اعتماد الدمج", use_container_width=True, key="merge_apply"):
+            picked = edited.index[edited["دمج"]].tolist()
+            n_names = int(cand.loc[picked, "Variants"].apply(len).sum() - len(picked)) if picked else 0
+
+            b1, b2 = st.columns([2, 1])
+            with b1:
+                go = st.button(f"✅ اعتماد الدمج المحدد — {len(picked)} مجموعة ({n_names} اسم)",
+                               use_container_width=True, key="merge_bulk",
+                               disabled=not picked, type="primary")
+            with b2:
+                st.caption("عملية واحدة لكل المجموعات — لا انتظار بين كل دمج والتالي")
+
+            if go:
                 new_rows = pd.DataFrame([
-                    {"Governorate": row["Governorate"], "Variant": v, "Canonical": canonical}
-                    for v in row["Variants"] if v != canonical
+                    {"Governorate": r["Governorate"], "Variant": v, "Canonical": r["Canonical"]}
+                    for _, r in cand.loc[picked].iterrows()
+                    for v in r["Variants"] if v != r["Canonical"]
                 ])
-                combined = pd.concat([merges, new_rows], ignore_index=True)
-                combined = combined.drop_duplicates(subset=["Governorate", "Variant"], keep="last")
-                ok, msg = save_name_merges(combined)
-                if ok:
-                    st.session_state["classified_df"] = apply_name_merges(st.session_state["classified_df"])
-                    st.session_state["journey_df"] = build_customer_journey(st.session_state["classified_df"])
-                    rebuild_dashboards()
-                    save_session(
-                        classified_df=st.session_state["classified_df"],
-                        journey_df=st.session_state["journey_df"],
-                        rep_kpi_df=st.session_state["rep_kpi_df"],
-                        file_name=st.session_state.get("file_name", ""),
-                    )
-                    st.success(f"✅ تم دمج {len(new_rows)} اسم في «{canonical}» وحفظ البيانات")
+                combined = (pd.concat([merges, new_rows], ignore_index=True)
+                            .drop_duplicates(subset=["Governorate", "Variant"], keep="last"))
+                ok_s, msg = save_name_merges(combined)
+                if ok_s:
+                    refresh_after_name_merges()
+                    st.success(f"✅ تم دمج {len(new_rows)} اسم في {len(picked)} عميل وحفظ البيانات")
                     st.rerun()
                 else:
                     st.error(msg)
+
+            # ── fine control: pick a different canonical for one group ──
+            with st.expander("✏️ تعديل مجموعة واحدة (اختيار اسم موحّد مختلف)"):
+                labels = [f"{'⚠️ ' if r['Risky'] else ''}{r['Canonical']} — "
+                          f"{r['Governorate'] or 'بدون محافظة'} ({len(r['Variants'])} اسم)"
+                          for _, r in cand.iterrows()]
+                sel = st.selectbox("اختر مجموعة", labels, key="merge_grp")
+                row = cand.iloc[labels.index(sel)]
+                html_table(pd.DataFrame({
+                    "الاسم": row["Variants"],
+                    "عدد الزيارات": [row["Counts"][v] for v in row["Variants"]],
+                }), color_cols={"عدد الزيارات": "#2DD4BF"}, height=200)
+                canonical = st.radio("الاسم الموحّد (الذي ستُنسب إليه كل الزيارات)",
+                                     row["Variants"], key="merge_canon")
+                if st.button("✅ اعتماد هذه المجموعة", use_container_width=True, key="merge_apply"):
+                    new_rows = pd.DataFrame([
+                        {"Governorate": row["Governorate"], "Variant": v, "Canonical": canonical}
+                        for v in row["Variants"] if v != canonical])
+                    combined = (pd.concat([merges, new_rows], ignore_index=True)
+                                .drop_duplicates(subset=["Governorate", "Variant"], keep="last"))
+                    ok_s, msg = save_name_merges(combined)
+                    if ok_s:
+                        refresh_after_name_merges()
+                        st.success(f"✅ تم دمج {len(new_rows)} اسم في «{canonical}»")
+                        st.rerun()
+                    else:
+                        st.error(msg)
 
         # ── Approved merges + undo ──
         if not merges.empty:
@@ -1178,17 +1247,9 @@ elif page == "تصنيف العملاء":
                                          sorted(merges["Canonical"].unique().tolist()), key="undo_merges")
             if undo_canons and st.button("↩️ تراجع عن الدمج المحدد", key="undo_btn"):
                 remaining = merges[~merges["Canonical"].isin(undo_canons)]
-                ok, msg = save_name_merges(remaining)
-                if ok:
-                    st.session_state["classified_df"] = apply_name_merges(st.session_state["classified_df"])
-                    st.session_state["journey_df"] = build_customer_journey(st.session_state["classified_df"])
-                    rebuild_dashboards()
-                    save_session(
-                        classified_df=st.session_state["classified_df"],
-                        journey_df=st.session_state["journey_df"],
-                        rep_kpi_df=st.session_state["rep_kpi_df"],
-                        file_name=st.session_state.get("file_name", ""),
-                    )
+                ok_s, msg = save_name_merges(remaining)
+                if ok_s:
+                    refresh_after_name_merges()
                     st.success("✅ تم التراجع واستعادة الأسماء الأصلية")
                     st.rerun()
                 else:

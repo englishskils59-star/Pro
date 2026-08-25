@@ -316,6 +316,12 @@ VALID_STATUSES = [
 OVERRIDE_KEY_VERSION = 2  # v2: rep name is case/space-insensitive in the key
 
 
+def _date_text(value) -> str:
+    """Always YYYY-MM-DD text (empty when the date is missing/unparseable)."""
+    d = pd.to_datetime(value, errors="coerce")
+    return "" if pd.isna(d) else d.strftime("%Y-%m-%d")
+
+
 def _visit_key(customer, visit_date, rep, note) -> str:
     d = str(pd.to_datetime(visit_date, errors="coerce"))[:10]
     rep_norm = " ".join(normalize_arabic(safe_str(rep)).split()).casefold()
@@ -527,7 +533,7 @@ def import_overrides(
         applied_rows.append({
             "Key":            row["_key"],
             "Customer Name":  safe_str(row.get("Customer Name")),
-            "Visit Date":     str(row.get("Visit Date"))[:10],
+            "Visit Date":     _date_text(row.get("Visit Date")),
             "Sales Rep Name": safe_str(row.get("Sales Rep Name")),
             "Manual Status":  new_status,
         })
@@ -548,9 +554,27 @@ def _display_to_internal(display: str) -> str:
         "New Customer":       "new",
         "Former Customer":    "former",
         "Not Interested":     "not_interested",
+        "No Meeting":         "no_meeting",   # selectable manually — must round-trip
         "Unclassified":       "unclassified",
     }
     return mapping.get(display, "unclassified")
+
+
+OVERRIDE_COLS = ["Key", "Customer Name", "Visit Date", "Sales Rep Name", "Manual Status"]
+
+
+def _as_text(df: pd.DataFrame) -> pd.DataFrame:
+    """The overrides file is a pure text record — keep every column as str so a
+    merge of old and new rows can never produce a mixed-type column."""
+    out = df.copy()
+    for col in out.columns:
+        if pd.api.types.is_datetime64_any_dtype(out[col]):
+            out[col] = out[col].dt.strftime("%Y-%m-%d")
+        else:
+            out[col] = out[col].map(lambda v: "" if v is None or pd.isna(v) else str(v))
+    if "Visit Date" in out.columns:                      # normalise to YYYY-MM-DD
+        out["Visit Date"] = out["Visit Date"].str.slice(0, 10)
+    return out
 
 
 def _save_overrides(override_df: pd.DataFrame):
@@ -561,16 +585,17 @@ def _save_overrides(override_df: pd.DataFrame):
     existing = pd.DataFrame()
     if paths["overrides"].exists():
         try:
-            existing = _parquet_to_df(paths["overrides"])
+            existing = _parquet_to_df(paths["overrides"], parse_dates=False)
         except Exception:
             existing = pd.DataFrame()
 
+    new_rows = _as_text(override_df)
     if not existing.empty and "Key" in existing.columns:
         # Merge: new overrides overwrite existing ones for the same visit
-        combined = pd.concat([existing, override_df], ignore_index=True)
+        combined = pd.concat([_as_text(existing), new_rows], ignore_index=True)
         combined = combined.drop_duplicates(subset=["Key"], keep="last")
     else:
-        combined = override_df.copy()
+        combined = new_rows
 
     with _write_lock():
         _df_to_parquet(combined, paths["overrides"])
@@ -605,6 +630,7 @@ def _rekey_overrides_if_needed(classified_df: pd.DataFrame):
                                       if "Sales Rep Name" in manual.columns else "",
                     "Manual Status":  manual["Display Status"].astype(str).values,
                 }).drop_duplicates(subset=["Key"], keep="last")
+                rebuilt = _as_text(rebuilt)
                 with _write_lock():
                     _df_to_parquet(rebuilt, _paths()["overrides"])
         meta["override_key_version"] = OVERRIDE_KEY_VERSION
@@ -632,12 +658,13 @@ def _migrate_legacy_overrides(overrides: pd.DataFrame, classified_df: pd.DataFra
             "Key": _visit_key(src.get("Customer Name"), src.get("Visit Date"),
                               src.get("Sales Rep Name"), src.get("Visit Notes")),
             "Customer Name":  safe_str(src.get("Customer Name")),
-            "Visit Date":     str(src.get("Visit Date"))[:10],
+            "Visit Date":     _date_text(src.get("Visit Date")),
             "Sales Rep Name": safe_str(src.get("Sales Rep Name")),
             "Manual Status":  str(row["Manual Status"]).strip(),
         })
     migrated_df = pd.DataFrame(migrated).drop_duplicates(subset=["Key"], keep="last")
     if not migrated_df.empty:
+        migrated_df = _as_text(migrated_df)
         with _write_lock():
             _df_to_parquet(migrated_df, _paths()["overrides"])
     return migrated_df
@@ -651,7 +678,7 @@ def _apply_saved_overrides(classified_df: pd.DataFrame) -> tuple[pd.DataFrame, i
         return classified_df, 0
 
     try:
-        overrides = _parquet_to_df(paths["overrides"])
+        overrides = _parquet_to_df(paths["overrides"], parse_dates=False)
         if overrides.empty:
             return classified_df, 0
 
@@ -813,16 +840,27 @@ def _df_to_parquet(df: pd.DataFrame, path: Path):
     # Convert datetime columns to string to avoid timezone issues
     for col in df_save.select_dtypes(include=["datetime64[ns]", "datetime64[ns, UTC]"]).columns:
         df_save[col] = df_save[col].astype(str)
+    # An object column holding more than one python type (e.g. Timestamp mixed
+    # with str after a concat) makes pyarrow's type inference fail — store those
+    # as plain text.
+    for col in df_save.select_dtypes(include=["object"]).columns:
+        kinds = {type(v) for v in df_save[col].to_numpy() if v is not None and v is not pd.NaT}
+        if len(kinds) > 1:
+            df_save[col] = df_save[col].map(lambda v: "" if pd.isna(v) else str(v))
     tmp = path.with_name(path.name + ".tmp")
     df_save.to_parquet(str(tmp), index=True, engine="pyarrow" if _has_pyarrow() else "fastparquet")
     os.replace(tmp, path)
 
 
-def _parquet_to_df(path: Path) -> pd.DataFrame:
-    """Load DataFrame from parquet."""
+def _parquet_to_df(path: Path, parse_dates: bool = True) -> pd.DataFrame:
+    """
+    Load DataFrame from parquet.
+    parse_dates=False keeps 'Visit Date' as text — used for the overrides file,
+    where the date is only part of the audit trail, not a datetime to compute on.
+    """
     df = pd.read_parquet(str(path), engine="pyarrow" if _has_pyarrow() else "fastparquet")
     # Re-parse Visit Date if it was stored as string
-    if "Visit Date" in df.columns and df["Visit Date"].dtype == object:
+    if parse_dates and "Visit Date" in df.columns and df["Visit Date"].dtype == object:
         df["Visit Date"] = pd.to_datetime(df["Visit Date"], errors="coerce")
     return df
 

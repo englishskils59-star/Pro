@@ -250,6 +250,58 @@ def deduplicate_customer_names(df: pd.DataFrame, name_col: str = "Customer Name"
     return df
 
 
+def find_name_merge_candidates(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Groups of customer-name spellings that refer to the same customer,
+    compared **within the same governorate only**.
+
+    For each group it proposes a canonical name: the spelling the sales team
+    actually writes most often (ties → the shorter, then alphabetical).
+
+    'Risky' marks groups whose cleaned name is a single word (e.g. "احمد"):
+    those may well be two different people and should be reviewed by hand.
+    """
+    if df.empty or "Customer Name" not in df.columns:
+        return pd.DataFrame()
+
+    tmp = deduplicate_customer_names(df)
+    if "Governorate" not in tmp.columns:
+        tmp["Governorate"] = ""
+
+    counts = tmp.groupby(["Customer Name Cleaned", "Governorate", "Customer Name"]).size()
+    rows = []
+    for (cleaned, gov), sub in counts.groupby(level=[0, 1]):
+        if not cleaned:
+            continue
+        variants = {name: int(n) for (_, _, name), n in sub.items()}
+        if len(variants) < 2:
+            continue
+        # most frequent spelling wins; ties → shortest, then alphabetical
+        canonical = sorted(variants.items(), key=lambda kv: (-kv[1], len(kv[0]), kv[0]))[0][0]
+
+        # Spelling-only differences (أ/ا، ي/ى، ة/ه، مسافات) are certainly the
+        # same customer. A difference of a whole word (a title, "مزرعة"…) is
+        # only safe when the core name is more than one word — "استاذ محمد"
+        # and "دكتور محمد" can easily be two different people.
+        spelling_only = len({normalize_arabic(v) for v in variants}) == 1
+        risky = (not spelling_only) and len(cleaned.split()) <= 1
+
+        rows.append({
+            "Cleaned":     cleaned,
+            "Governorate": gov,
+            "Canonical":   canonical,
+            "Variants":    sorted(variants, key=lambda v: -variants[v]),
+            "Counts":      variants,
+            "Visits":      int(sum(variants.values())),
+            "Risky":       risky,
+        })
+
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    return out.sort_values(["Risky", "Visits"], ascending=[True, False]).reset_index(drop=True)
+
+
 def find_similar_customers(df: pd.DataFrame) -> pd.DataFrame:
     """
     Return a summary of cleaned customer names.

@@ -693,58 +693,53 @@ def build_customer_journey(classified_df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     today = pd.Timestamp(datetime.today().date())
-    records = []
 
-    grp = classified_df.sort_values("Visit Date").groupby("Customer Name", sort=False)
+    df = classified_df.copy()
+    df["Visit Date"] = pd.to_datetime(df["Visit Date"], errors="coerce")
+    df = df.sort_values("Visit Date", kind="stable")
+    if "Display Status" not in df.columns:
+        df["Display Status"] = "Unclassified"
+    df["Display Status"] = df["Display Status"].fillna("Unclassified").astype(str)
 
-    for customer_name, group in grp:
-        visits        = group.sort_values("Visit Date")
-        first_visit   = visits["Visit Date"].min()
-        last_visit    = visits["Visit Date"].max()
-        visit_count   = len(visits)
-        days_since_lv = days_since(last_visit, today)
+    grp = df.groupby("Customer Name", sort=False)
 
-        # Journey: list of (date, status) tuples
-        history = []
-        for _, row in visits.iterrows():
-            history.append({
-                "visit_date": row["Visit Date"],
-                "status":     row.get("Display Status", "Unclassified"),
-                "notes":      safe_str(row.get("Visit Notes", "")),
-                "sales_rep":  safe_str(row.get("Sales Rep Name", "")),
-            })
+    # ── per-customer aggregates ──
+    out = pd.DataFrame({
+        "First Visit Date": grp["Visit Date"].min(),
+        "Last Visit Date":  grp["Visit Date"].max(),
+        "Visit Count":      grp.size(),
+    })
 
-        # Latest REAL status: No Meeting / Unclassified visits must not
-        # overwrite the customer's last actual classification.
-        real_visits = visits[~visits["Display Status"].isin(NON_STATUS)] \
-            if "Display Status" in visits.columns else visits
-        latest_row        = real_visits.iloc[-1] if len(real_visits) else visits.iloc[-1]
-        latest_status     = safe_str(latest_row.get("Display Status", "Unclassified"))
-        latest_confidence = latest_row.get("Confidence Score", 0.0)
+    # ── readable status history: "[date] Status → [date] Status" ──
+    hist_line = ("[" + df["Visit Date"].dt.strftime("%Y-%m-%d").fillna("?") + "] "
+                 + df["Display Status"])
+    out["Status History"] = df.assign(_h=hist_line).groupby("Customer Name", sort=False)["_h"].agg(" → ".join)
 
-        # Build readable status history string
-        status_history_str = " → ".join(
-            [f"[{h['visit_date'].strftime('%Y-%m-%d') if pd.notnull(h['visit_date']) else '?'}] {h['status']}"
-             for h in history]
-        )
+    # ── the row that decides the customer's standing ──
+    # last visit carrying a REAL status; customers with none fall back to their
+    # last visit of any kind (No Meeting / Unclassified must not overwrite it)
+    last_any  = grp.tail(1)
+    real      = df[~df["Display Status"].isin(NON_STATUS)]
+    last_real = real.groupby("Customer Name", sort=False).tail(1)
+    fallback  = last_any[~last_any["Customer Name"].isin(last_real["Customer Name"])]
+    decisive  = pd.concat([last_real, fallback]).set_index("Customer Name")
 
-        records.append({
-            "Customer Name":       customer_name,
-            "First Visit Date":    first_visit,
-            "Last Visit Date":     last_visit,
-            "Visit Count":         visit_count,
-            "Days Since Last Visit": days_since_lv,
-            "Latest Status":       latest_status,
-            "Latest Confidence":   latest_confidence,
-            "Status History":      status_history_str,
-            "_journey":            history,   # kept for detail views; dropped on export
-            "Governorate":         safe_str(group["Governorate"].iloc[-1]) if "Governorate" in group.columns else "",
-            "District":            safe_str(group["District"].iloc[-1])    if "District"    in group.columns else "",
-            "Sales Rep Name":      safe_str(group["Sales Rep Name"].iloc[-1]) if "Sales Rep Name" in group.columns else "",
-        })
+    out["Latest Status"] = decisive["Display Status"].str.strip()
+    out["Latest Confidence"] = (decisive["Confidence Score"]
+                                if "Confidence Score" in decisive.columns else 0.0)
 
-    journey_df = pd.DataFrame(records)
-    return journey_df
+    # ── attributes taken from the customer's most recent visit ──
+    latest = last_any.set_index("Customer Name")
+    for col in ["Governorate", "District", "Sales Rep Name"]:
+        out[col] = (latest[col].fillna("").astype(str).str.strip()
+                    if col in latest.columns else "")
+
+    out["Days Since Last Visit"] = (today - out["Last Visit Date"]).dt.days
+
+    out = out.reset_index().rename(columns={"index": "Customer Name"})
+    return out[["Customer Name", "First Visit Date", "Last Visit Date", "Visit Count",
+                "Days Since Last Visit", "Latest Status", "Latest Confidence",
+                "Status History", "Governorate", "District", "Sales Rep Name"]]
 
 
 # ═══════════════════════════════════════════════════════════════════
