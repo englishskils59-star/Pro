@@ -26,6 +26,18 @@ MOTION_CSS = """
 @keyframes wdiRing{0%,46%{transform:scale(.4);opacity:0}53%{opacity:.85}72%,100%{transform:scale(2.4);opacity:0}}
 @keyframes wdiGlow{0%,100%{box-shadow:0 0 0 0 rgba(45,212,191,0)}50%{box-shadow:0 0 32px 0 rgba(45,212,191,.22)}}
 .wdi-mark circle,.wdi-mark polyline{transform-box:fill-box;transform-origin:center;}
+
+/* ── شعار الشريط الجانبي: يُرسم مرة واحدة ثم يبقى ظاهراً مع نبض خفيف للنقطة ── */
+@keyframes wdiDrawOnce{0%{stroke-dashoffset:112}100%{stroke-dashoffset:0}}
+@keyframes wdiDotIn{0%,70%{transform:scale(0)}85%{transform:scale(1.25)}100%{transform:scale(1)}}
+@keyframes wdiPulse{0%{transform:scale(.6);opacity:0}12%{transform:scale(.75);opacity:.55}70%,100%{transform:scale(2.2);opacity:0}}
+@media (prefers-reduced-motion: reduce){.wdi-once *{animation:none!important}}
+
+/* ── استغلال سطر زر الطي أعلى الشريط الجانبي بدل تركه فارغاً ── */
+[data-testid="stSidebarUserContent"]{margin-top:-58px}
+[data-testid="stSidebarHeader"]{position:relative;z-index:5;pointer-events:none}
+[data-testid="stSidebarHeader"] button,[data-testid="stSidebarCollapseButton"]{pointer-events:auto}
+[data-testid="stSidebarUserContent"] hr{margin:6px 0 12px}
 """
 
 
@@ -65,13 +77,29 @@ def mark_svg_animated(size: int = 38, dur: str = "4.2s", stops: bool = False,
     )
 
 
+def mark_svg_intro(size: int = 40, stroke: float = 6.5, accent: str = BLUE, teal: str = TEAL) -> str:
+    """العلامة تُرسم مرة واحدة عند الفتح ثم تبقى ظاهرة بالكامل، مع نبض خفيف متكرر
+    حول نقطة التحليل. (العلامة المتكررة التي تُمسح تُستخدم في شاشة البدء فقط.)"""
+    return (
+        f'<svg class="wdi-mark wdi-once" width="{size}" height="{size}" viewBox="0 0 64 64" fill="none"'
+        f' style="overflow:visible;flex-shrink:0">'
+        f'<circle cx="55" cy="13" r="5.5" fill="none" stroke="{accent}" stroke-width="1.6"'
+        f' style="opacity:0;animation:wdiPulse 2.8s ease-out 1.4s infinite both"/>'
+        f'<polyline points="9,17 21,47 32,29 43,47 55,13" stroke="{teal}" stroke-width="{stroke}"'
+        f' stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="112"'
+        f' style="animation:wdiDrawOnce 1.1s ease-out both"/>'
+        f'<circle cx="55" cy="13" r="6" fill="{accent}" style="animation:wdiDotIn 1.4s ease-out both"/>'
+        f'</svg>'
+    )
+
+
 def sidebar_brand(animated: bool = True) -> None:
-    """شعار الشريط الجانبي — بديل بلوك الـ W القديم."""
-    logo = mark_svg_animated(34, stroke=7) if animated else mark_svg(34, stroke=7)
+    """شعار الشريط الجانبي — مضغوط ويشغل سطر زر الطي، والعلامة ظاهرة دائماً."""
+    logo = mark_svg_intro(40) if animated else mark_svg(40, stroke=6.5)
     st.markdown(
-        f'<div style="display:flex;align-items:center;gap:11px;padding:14px 6px 16px">{logo}'
-        f'<div><div style="font-size:15px;font-weight:700;letter-spacing:.3px;color:{TEXT}">WDI Analytics</div>'
-        f'<div style="font-size:10px;color:{FAINT};margin-top:2px;white-space:nowrap">Visit Analytics Engine v2.0</div>'
+        f'<div class="wdi-brand" style="display:flex;align-items:center;gap:10px;padding:6px 2px 10px">{logo}'
+        f'<div><div style="font-size:16px;font-weight:700;letter-spacing:.3px;color:{TEXT};line-height:1.25">WDI Analytics</div>'
+        f'<div style="font-size:10.5px;color:{FAINT};margin-top:2px;white-space:nowrap">Visit Analytics Engine v2.0</div>'
         f'</div></div>', unsafe_allow_html=True)
 
 
