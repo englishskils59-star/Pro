@@ -29,7 +29,7 @@ from export_manager import (
 )
 from rep_report import export_rep_report
 from insights import (
-    rep_report_data, find_duplicate_visits, find_rep_merge_candidates,
+    rep_report_data, find_duplicate_visits, find_rep_merge_candidates, find_governorate_merge_candidates,
     extract_promises, next_best_visits, competitor_mentions,
     weekday_productivity, note_quality, data_quality_summary,
     engine_agreement, unclassified_phrases, period_comparison,
@@ -42,6 +42,7 @@ from storage_manager import (
     storage_status, VALID_STATUSES, apply_saved_overrides, apply_name_merges,
     load_custom_rules, save_custom_rules, load_name_merges, save_name_merges,
     load_rep_merges, save_rep_merges, apply_rep_merges,
+    load_gov_merges, save_gov_merges, apply_gov_merges, apply_all_merges,
     get_auto_dedup, set_auto_dedup, drop_exact_duplicates,
     remove_duplicate_visits, restore_removed_duplicates, load_removed_duplicates,
 )
@@ -461,7 +462,7 @@ def merge_candidates(df: pd.DataFrame, n_merges: int) -> pd.DataFrame:
 def refresh_after_name_merges():
     """Re-apply the approved merges and rebuild everything — once for the whole batch."""
     with st.spinner("🔄 تطبيق التوحيد وإعادة بناء التحليلات..."):
-        st.session_state["classified_df"] = apply_name_merges(st.session_state["classified_df"])
+        st.session_state["classified_df"] = apply_all_merges(st.session_state["classified_df"])
         st.session_state["journey_df"] = build_customer_journey(st.session_state["classified_df"])
     rebuild_dashboards()
     with st.spinner("💾 حفظ البيانات..."):
@@ -497,8 +498,7 @@ def reclassify_and_save():
 def run_full_pipeline(raw_df: pd.DataFrame, uploaded_file=None):
     with st.spinner("🔄 تنظيف البيانات..."):
         clean = clean_dataframe(raw_df)
-        clean = apply_name_merges(clean)
-        clean = apply_rep_merges(clean)
+        clean = apply_all_merges(clean)      # المحافظات ← العملاء ← المناديب
         if get_auto_dedup():
             clean, dropped = drop_exact_duplicates(clean)
             if len(dropped):
@@ -1249,6 +1249,88 @@ elif page == "تصنيف العملاء":
                     else:
                         st.error(msg)
 
+        # ══════════ توحيد المحافظات ══════════
+        st.markdown("---")
+        section("توحيد أسماء المحافظات", "GOVERNORATES")
+        st.markdown("المحافظة الواحدة قد تُسجَّل بأكثر من إملاء أو بخطأ طباعة، فتظهر كمحافظتين في "
+                    "التحليلات والخريطة وتقرير المندوب. **دمج العملاء المحفوظ لا يتأثر** — "
+                    "لأن المقارنة تتم على المحافظة بعد توحيدها.")
+        gov_merges = load_gov_merges()
+        gov_cand = find_governorate_merge_candidates(master_df)
+        _govs_now = master_df["Governorate"].fillna("").astype(str).str.strip()
+        _gov_counts = _govs_now[_govs_now != ""].value_counts()
+        stat_cards([
+            {"label": "قيم المحافظات حالياً", "value": fmt_number(len(_gov_counts)), "accent": "#2DD4BF"},
+            {"label": "اقتراحات للمراجعة", "value": fmt_number(len(gov_cand)),
+             "color": "#FFC000", "accent": "#FFC000"},
+            {"label": "إملاءات موحّدة سابقاً", "value": fmt_number(len(gov_merges)), "accent": "#8B98A5"},
+        ], cols=3)
+
+        if not gov_cand.empty:
+            gtable = pd.DataFrame({
+                "دمج": True,
+                "الاسم الموحّد": gov_cand["الاسم الموحّد"],
+                "الإملاءات التي ستُدمج": gov_cand["الإملاءات الأخرى"],
+                "النوع": gov_cand["النوع"],
+                "الثقة": gov_cand["الثقة"],
+                "الزيارات المتأثرة": gov_cand["الزيارات المتأثرة"],
+            })
+            gedit = st.data_editor(
+                gtable, hide_index=True, use_container_width=True, key="gov_editor",
+                height=min(320, 40 + 36 * len(gtable)),
+                column_config={"دمج": st.column_config.CheckboxColumn("دمج", width="small")},
+                disabled=["الاسم الموحّد", "الإملاءات التي ستُدمج", "النوع", "الثقة", "الزيارات المتأثرة"],
+            )
+            gpick = gedit.index[gedit["دمج"]].tolist()
+            if st.button(f"✅ اعتماد توحيد {len(gpick)} اقتراح", use_container_width=True,
+                         key="gov_bulk", disabled=not gpick):
+                rows = [{"Variant": v, "Canonical": gov_cand.loc[i, "الاسم الموحّد"]}
+                        for i in gpick for v in gov_cand.loc[i, "_variants"]]
+                combined = (pd.concat([gov_merges, pd.DataFrame(rows)], ignore_index=True)
+                            .drop_duplicates(subset=["Variant"], keep="last"))
+                ok_s, msg = save_gov_merges(combined)
+                if ok_s:
+                    refresh_after_name_merges()
+                    st.success(f"✅ تم توحيد {len(rows)} إملاء"); st.rerun()
+                else:
+                    st.error(msg)
+        else:
+            st.success("✅ لا توجد إملاءات مشكوك فيها للمحافظات")
+
+        with st.expander("✏️ توحيد يدوي حر (مثل ضم مدينة إلى محافظتها)"):
+            st.caption("مثال: «وادى النطرون» مدينة تتبع البحيرة، و«العاشر من رمضان» تتبع الشرقية.")
+            gm1, gm2 = st.columns([2, 1])
+            _gov_list = _gov_counts.index.tolist()
+            with gm1:
+                gvars = st.multiselect("القيم المراد دمجها", _gov_list, key="gov_variants",
+                                       format_func=lambda g: f"{g} ({_gov_counts.get(g, 0)} زيارة)")
+            with gm2:
+                gcanon = st.selectbox("المحافظة الموحّدة", _gov_list, key="gov_canon")
+            _gvars = [v for v in gvars if v != gcanon]
+            if _gvars and st.button(f"✅ دمج {len(_gvars)} قيمة في «{gcanon}»",
+                                    use_container_width=True, key="gov_manual"):
+                rows = pd.DataFrame([{"Variant": v, "Canonical": gcanon} for v in _gvars])
+                combined = (pd.concat([gov_merges, rows], ignore_index=True)
+                            .drop_duplicates(subset=["Variant"], keep="last"))
+                ok_s, msg = save_gov_merges(combined)
+                if ok_s:
+                    refresh_after_name_merges()
+                    st.success(f"✅ تم الدمج في «{gcanon}»"); st.rerun()
+                else:
+                    st.error(msg)
+
+        if not gov_merges.empty:
+            st.markdown("**عمليات توحيد المحافظات المعتمدة**")
+            html_table(gov_merges.rename(columns={"Variant": "الإملاء المدموج",
+                                                  "Canonical": "المحافظة الموحّدة"}), height=180)
+            gu = st.multiselect("↩️ اختر إملاءات للتراجع عن توحيدها",
+                                gov_merges["Variant"].tolist(), key="gov_undo_pick")
+            if gu and st.button("↩️ تراجع عن المحدد", key="gov_undo"):
+                ok_s, msg = save_gov_merges(gov_merges[~gov_merges["Variant"].isin(gu)])
+                if ok_s:
+                    refresh_after_name_merges()
+                    st.success("✅ تم التراجع واستعادة الإملاء الأصلي"); st.rerun()
+
         # ══════════ توحيد أسماء المناديب ══════════
         st.markdown("---")
         section("توحيد أسماء المناديب", "SALES REP NAMES")
@@ -1292,7 +1374,6 @@ elif page == "تصنيف العملاء":
                             .drop_duplicates(subset=["Variant"], keep="last"))
                 ok_s, msg = save_rep_merges(combined)
                 if ok_s:
-                    st.session_state["classified_df"] = apply_rep_merges(st.session_state["classified_df"])
                     refresh_after_name_merges()
                     st.success(f"✅ تم دمج {len(new_rows)} اسم في «{canonical}»")
                     st.rerun()
@@ -1306,7 +1387,6 @@ elif page == "تصنيف العملاء":
             if st.button("↩️ تراجع عن كل دمج للمناديب", key="rep_undo"):
                 ok_s, msg = save_rep_merges(pd.DataFrame(columns=["Variant", "Canonical"]))
                 if ok_s:
-                    st.session_state["classified_df"] = apply_rep_merges(st.session_state["classified_df"])
                     refresh_after_name_merges()
                     st.success("✅ تم التراجع واستعادة أسماء المناديب الأصلية")
                     st.rerun()

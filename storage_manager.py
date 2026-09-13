@@ -103,6 +103,7 @@ def _paths() -> dict:
         "custom_rules": d / "custom_rules.json",
         "name_merges":  d / "name_merges.parquet",
         "rep_merges":   d / "rep_merges.parquet",
+        "gov_merges":   d / "gov_merges.parquet",
         "removed_dupes": d / "removed_duplicates.parquet",
     }
 
@@ -254,9 +255,8 @@ def load_session() -> tuple[bool, dict]:
             from utils import clean_rep_name
             classified_df["Sales Rep Name"] = classified_df["Sales Rep Name"].apply(clean_rep_name)
 
-        # Apply saved name merges (customers then reps), then saved overrides
-        classified_df = apply_name_merges(classified_df)
-        classified_df = apply_rep_merges(classified_df)
+        # Apply saved merges (governorates → customers → reps), then overrides
+        classified_df = apply_all_merges(classified_df)
         _rekey_overrides_if_needed(classified_df)
         classified_df, override_count = _apply_saved_overrides(classified_df)
 
@@ -828,14 +828,92 @@ def apply_name_merges(df: pd.DataFrame) -> pd.DataFrame:
     if merges.empty:
         return df
 
-    gov = df["Governorate"].astype(str) if "Governorate" in df.columns else ""
+    # المحافظة تُقارن بعد توحيدها وتطبيعها على الجانبين — حتى لا يتوقف دمج
+    # محفوظ بإملاء قديم ("البحيره") بعد توحيد المحافظات ("البحيرة")، والعكس.
+    gov_map = _gov_mapping()
+    gkey = lambda g: normalize_arabic(gov_map.get(safe_str(g), safe_str(g)))
+    gov = (df["Governorate"].astype(str).map(gkey) if "Governorate" in df.columns
+           else pd.Series([""] * len(df), index=df.index))
     mapping = {
-        (safe_str(r["Governorate"]), safe_str(r["Variant"])): safe_str(r["Canonical"])
+        (gkey(r["Governorate"]), safe_str(r["Variant"])): safe_str(r["Canonical"])
         for _, r in merges.iterrows()
     }
     keys = list(zip(gov, df["Customer Name"].astype(str)))
     df["Customer Name"] = [mapping.get(k, k[1]) for k in keys]
     return df
+
+
+# ═══════════════════════════════════════════════════════════════════
+# GOVERNORATE MERGES  —  توحيد أسماء المحافظات
+# ═══════════════════════════════════════════════════════════════════
+
+def load_gov_merges() -> pd.DataFrame:
+    """أعمدة: Variant (الإملاء المسجل) و Canonical (المحافظة الموحّدة)."""
+    p = _paths()["gov_merges"]
+    if not p.exists():
+        return pd.DataFrame(columns=["Variant", "Canonical"])
+    try:
+        return _parquet_to_df(p, parse_dates=False)
+    except Exception:
+        return pd.DataFrame(columns=["Variant", "Canonical"])
+
+
+def save_gov_merges(merges_df: pd.DataFrame) -> tuple[bool, str]:
+    try:
+        with _write_lock():
+            _df_to_parquet(_as_text(merges_df), _paths()["gov_merges"])
+        return True, "✅ تم حفظ توحيد المحافظات"
+    except Exception as e:
+        return False, f"❌ خطأ: {e}"
+
+
+def _resolve_chains(mapping: dict) -> dict:
+    """
+    يتبع سلاسل الدمج حتى نهايتها: لو «أ ← ب» و«ب ← ج» فالنتيجة «أ ← ج».
+    يحدث هذا طبيعياً عند توحيد الإملاء أولاً ثم ضم الاسم لغيره لاحقاً.
+    """
+    resolved = {}
+    for start in mapping:
+        cur, seen = start, {start}
+        while cur in mapping and mapping[cur] not in seen:
+            cur = mapping[cur]
+            seen.add(cur)
+        if cur != start:
+            resolved[start] = cur
+    return resolved
+
+
+def _gov_mapping() -> dict:
+    m = load_gov_merges()
+    if m.empty:
+        return {}
+    return _resolve_chains({safe_str(r["Variant"]): safe_str(r["Canonical"]) for _, r in m.iterrows()})
+
+
+def apply_gov_merges(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    يوحّد أسماء المحافظات. الإملاء الأصلي محفوظ في 'Governorate Original'
+    ويُستعاد أولاً، فالتراجع عن أي توحيد يعمل عند التحميل التالي.
+    المحافظة ليست جزءاً من مفتاح التصنيف اليدوي، فلا يتأثر أي تصنيف.
+    """
+    if df.empty or "Governorate" not in df.columns:
+        return df
+    df = df.copy()
+    if "Governorate Original" in df.columns:
+        restored = df["Governorate Original"].fillna("").astype(str)
+        df["Governorate"] = np.where(restored != "", restored, df["Governorate"])
+    else:
+        df["Governorate Original"] = df["Governorate"]
+    mapping = _gov_mapping()
+    if mapping:
+        df["Governorate"] = df["Governorate"].map(
+            lambda g: mapping.get(safe_str(g), g) if pd.notna(g) else g)
+    return df
+
+
+def apply_all_merges(df: pd.DataFrame) -> pd.DataFrame:
+    """الترتيب مهم: المحافظات أولاً (لأن دمج العملاء يعتمد عليها) ثم العملاء ثم المناديب."""
+    return apply_rep_merges(apply_name_merges(apply_gov_merges(df)))
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -880,7 +958,8 @@ def apply_rep_merges(df: pd.DataFrame) -> pd.DataFrame:
     merges = load_rep_merges()
     if merges.empty:
         return df
-    mapping = {safe_str(r["Variant"]): safe_str(r["Canonical"]) for _, r in merges.iterrows()}
+    mapping = _resolve_chains({safe_str(r["Variant"]): safe_str(r["Canonical"])
+                               for _, r in merges.iterrows()})
     df["Sales Rep Name"] = df["Sales Rep Name"].astype(str).map(lambda v: mapping.get(v, v))
     return df
 

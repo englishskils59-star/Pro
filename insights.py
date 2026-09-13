@@ -1156,3 +1156,70 @@ def find_rep_merge_candidates(df: pd.DataFrame) -> pd.DataFrame:
     if out.empty:
         return out
     return out.sort_values("مؤشر الترجيح", ascending=False).reset_index(drop=True)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 13) GOVERNORATE CANDIDATES — إملاءات متعددة لنفس المحافظة
+# ═══════════════════════════════════════════════════════════════════
+
+def find_governorate_merge_candidates(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    نوعان من الاقتراحات:
+      إملائي — نفس المحافظة بعد تطبيع الهمزة/التاء المربوطة/الياء (مؤكد)
+      خطأ طباعة — قيمة ليست محافظة معروفة لكنها قريبة جداً من محافظة موجودة
+    الاسم الموحّد المقترح = الإملاء الأكثر تكراراً في البيانات.
+    لا دمج تلقائي — القرار للمستخدم.
+    """
+    import difflib
+    if df.empty or "Governorate" not in df.columns:
+        return pd.DataFrame()
+    vc = df["Governorate"].fillna("").astype(str).str.strip()
+    vc = vc[vc != ""].value_counts()
+    if vc.empty:
+        return pd.DataFrame()
+
+    known = set(_GOV_CENTROIDS)
+    by_key: dict = {}
+    for name, n in vc.items():
+        by_key.setdefault(normalize_arabic(name), []).append((name, int(n)))
+
+    rows, used = [], set()
+    # ── 1) إملاءات متعددة لنفس المحافظة ──
+    for key, items in by_key.items():
+        if len(items) < 2:
+            continue
+        items.sort(key=lambda t: -t[1])
+        canonical = items[0][0]
+        rows.append({
+            "النوع": "إملائي",
+            "الاسم الموحّد": canonical,
+            "الإملاءات الأخرى": " | ".join(f"{v} ({n})" for v, n in items[1:]),
+            "_variants": [v for v, _ in items[1:]],
+            "الزيارات المتأثرة": sum(n for _, n in items[1:]),
+            "الثقة": "مؤكد",
+        })
+        used.update(v for v, _ in items)
+
+    # ── 2) أخطاء طباعة قريبة من محافظة معروفة ──
+    present_known = {k: max(v, key=lambda t: t[1])[0] for k, v in by_key.items() if k in known}
+    for key, items in by_key.items():
+        if key in known or all(v in used for v, _ in items):
+            continue
+        best = difflib.get_close_matches(key, list(present_known), n=1, cutoff=0.75)
+        if not best:
+            continue
+        target = present_known[best[0]]
+        ratio = difflib.SequenceMatcher(None, key, best[0]).ratio()
+        rows.append({
+            "النوع": "خطأ طباعة محتمل",
+            "الاسم الموحّد": target,
+            "الإملاءات الأخرى": " | ".join(f"{v} ({n})" for v, n in items),
+            "_variants": [v for v, _ in items],
+            "الزيارات المتأثرة": sum(n for _, n in items),
+            "الثقة": f"تشابه {ratio * 100:.0f}%",
+        })
+
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    return out.sort_values(["النوع", "الزيارات المتأثرة"], ascending=[True, False]).reset_index(drop=True)
