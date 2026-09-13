@@ -659,3 +659,335 @@ def conversion_retention(conversions_df: pd.DataFrame,
                              "Transition Date", "الحالة الحالية"] if c in lost.columns]
     out["lost_after_conversion"] = lost[keep_cols].reset_index(drop=True)
     return out
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 10) SALES-REP REPORT — كل بيانات تقرير المندوب لفترة محددة
+# ═══════════════════════════════════════════════════════════════════
+
+WASTED_STATUSES = ["Not Interested", "Former Customer"]
+_MONTHS_AR = {1: "يناير", 2: "فبراير", 3: "مارس", 4: "أبريل", 5: "مايو", 6: "يونيو",
+              7: "يوليو", 8: "أغسطس", 9: "سبتمبر", 10: "أكتوبر", 11: "نوفمبر", 12: "ديسمبر"}
+
+
+def canonical_governorates(series: pd.Series) -> dict:
+    """
+    Map every spelling of a governorate to the most common one
+    ("البحيره" و"البحيرة" يظهران كمحافظة واحدة).
+    """
+    s = series.dropna().astype(str).str.strip()
+    s = s[s != ""]
+    if s.empty:
+        return {}
+    tmp = pd.DataFrame({"raw": s, "key": s.map(normalize_arabic)})
+    best = (tmp.groupby(["key", "raw"]).size().reset_index(name="n")
+              .sort_values("n", ascending=False).drop_duplicates("key"))
+    key_to_name = dict(zip(best["key"], best["raw"]))
+    return {raw: key_to_name[normalize_arabic(raw)] for raw in s.unique()}
+
+
+def rep_report_data(classified_df: pd.DataFrame, journey_df: pd.DataFrame,
+                    rep: str, year: int, month=None) -> dict:
+    """
+    Everything the per-rep Excel report needs.
+    year = required, month = None means the whole year.
+    Period figures come with two references: the previous period and the team
+    average, because a bare number can't be judged on its own.
+    """
+    out = {}
+    df = classified_df.copy()
+    df["Visit Date"] = pd.to_datetime(df["Visit Date"], errors="coerce")
+    df = df.dropna(subset=["Visit Date"])
+
+    gov_map = canonical_governorates(df["Governorate"]) if "Governorate" in df.columns else {}
+    df["_gov"] = df["Governorate"].map(lambda g: gov_map.get(str(g).strip(), str(g).strip())) \
+        if "Governorate" in df.columns else ""
+
+    rep_all = df[df["Sales Rep Name"] == rep]
+
+    def _slice(frame, y, m):
+        f = frame[frame["Visit Date"].dt.year == y]
+        return f if m is None else f[f["Visit Date"].dt.month == m]
+
+    per = _slice(rep_all, year, month)
+    if month is None:
+        prev, prev_label = _slice(rep_all, year - 1, None), f"{year - 1}"
+        period_label = f"سنة {year}"
+    else:
+        py, pm = (year - 1, 12) if month == 1 else (year, month - 1)
+        prev, prev_label = _slice(rep_all, py, pm), f"{_MONTHS_AR[pm]} {py}"
+        period_label = f"{_MONTHS_AR[month]} {year}"
+
+    team_per = _slice(df[df["Sales Rep Name"].astype(str).str.strip() != ""], year, month)
+
+    # ── header ──
+    # "المحافظات المسؤول عنها" = كل محافظات زياراته (نطاقه)، لا محافظات الفترة
+    # فقط — حتى تتسق مع شيت المنافسين. توزيع الفترة يظهر في جدول منفصل.
+    territory = rep_all["_gov"].value_counts()
+    in_period = per["_gov"].value_counts() if len(per) else pd.Series(dtype=int)
+    out["header"] = {
+        "rep": rep, "period": period_label, "prev_label": prev_label,
+        "governorates": " · ".join(territory.index.tolist()),
+        "governorates_period": " · ".join(in_period.index.tolist()) if len(in_period) else "—",
+        "generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+    }
+
+    # ── transitions & conversions (rep-attributed) ──
+    from dashboard import customer_transitions
+    trans = customer_transitions(classified_df)
+    rep_trans = trans[trans["Sales Rep Name"] == rep].copy() if not trans.empty else pd.DataFrame()
+    if not rep_trans.empty:
+        rep_trans["Transition Date"] = pd.to_datetime(rep_trans["Transition Date"], errors="coerce")
+    conv_all = rep_trans[rep_trans["To Status"] == "Current Customer"] if not rep_trans.empty else pd.DataFrame()
+    conv_per = (conv_all[(conv_all["Transition Date"].dt.year == year) &
+                         ((month is None) | (conv_all["Transition Date"].dt.month == month))]
+                if not conv_all.empty else pd.DataFrame())
+
+    def _conv_count(frame, y, m):
+        if trans.empty:
+            return 0
+        t = trans[trans["To Status"] == "Current Customer"].copy()
+        t["Transition Date"] = pd.to_datetime(t["Transition Date"], errors="coerce")
+        t = t[(t["Transition Date"].dt.year == y) & ((m is None) | (t["Transition Date"].dt.month == m))]
+        return len(t[t["Sales Rep Name"] == rep]) if frame is None else t
+
+    # ── KPI block with the two references ──
+    def _kpis(frame):
+        if frame.empty:
+            return dict(visits=0, customers=0, workdays=0, per_day=0.0, wasted=0, nomeet=0)
+        wd = frame["Visit Date"].dt.date.nunique()
+        return dict(
+            visits=len(frame), customers=frame["Customer Name"].nunique(), workdays=wd,
+            per_day=round(len(frame) / max(1, wd), 1),
+            wasted=int(frame["Display Status"].isin(WASTED_STATUSES).sum()),
+            nomeet=int((frame["Display Status"] == "No Meeting").sum()),
+        )
+
+    k_now, k_prev = _kpis(per), _kpis(prev)
+    n_reps = max(1, team_per["Sales Rep Name"].nunique())
+    team_avg = dict(
+        visits=round(len(team_per) / n_reps, 1),
+        customers=round(team_per.groupby("Sales Rep Name")["Customer Name"].nunique().mean(), 1) if len(team_per) else 0,
+        workdays=round(team_per.groupby("Sales Rep Name")["Visit Date"].apply(lambda s: s.dt.date.nunique()).mean(), 1) if len(team_per) else 0,
+    )
+    conv_prev = _conv_count(None, year - 1, None) if month is None else _conv_count(None, *( (year - 1, 12) if month == 1 else (year, month - 1)))
+    team_conv = _conv_count(True, year, month)
+    team_conv_avg = round(len(team_conv) / n_reps, 1) if isinstance(team_conv, pd.DataFrame) and len(team_conv) else 0
+
+    pct = lambda a, b: f"{a / b * 100:.1f}%" if b else "—"
+    out["kpis"] = pd.DataFrame([
+        ["إجمالي الزيارات",       k_now["visits"],    k_prev["visits"],    team_avg["visits"]],
+        ["عملاء تمت زيارتهم",     k_now["customers"], k_prev["customers"], team_avg["customers"]],
+        ["أيام عمل فعلية",        k_now["workdays"],  k_prev["workdays"],  team_avg["workdays"]],
+        ["متوسط زيارات/يوم عمل",  k_now["per_day"],   k_prev["per_day"],   ""],
+        ["تحويلات إلى عميل حالي", len(conv_per),      conv_prev,           team_conv_avg],
+        ["زيارات لغير مهتم/متوقف", k_now["wasted"],   k_prev["wasted"],    ""],
+        ["زيارات لم تتم (غائب/مسافر)", k_now["nomeet"], k_prev["nomeet"],  ""],
+    ], columns=["المؤشر", "الفترة الحالية", "الفترة السابقة", "متوسط الفريق"])
+    out["ratios"] = pd.DataFrame([
+        ["نسبة الزيارات غير المنتجة", pct(k_now["wasted"], k_now["visits"])],
+        ["نسبة الزيارات التي لم تتم", pct(k_now["nomeet"], k_now["visits"])],
+        ["نسبة الزيارات المنتجة",
+         pct(k_now["visits"] - k_now["wasted"] - k_now["nomeet"], k_now["visits"])],
+        ["تحويلات تراكمية (كل تاريخ المندوب)", len(conv_all)],
+    ], columns=["المؤشر", "القيمة"])
+    status_map = dict(zip(journey_df["Customer Name"], journey_df["Latest Status"])) \
+        if not journey_df.empty else {}
+    days_map = dict(zip(journey_df["Customer Name"], journey_df["Days Since Last Visit"])) \
+        if not journey_df.empty else {}
+
+    # ── 1) الزيارات: شهري / أسبوعي / يومي + أيام الأسبوع ──
+    if len(per):
+        mon = (per.assign(m=per["Visit Date"].dt.to_period("M").astype(str))
+                 .groupby("m").agg(الزيارات=("Customer Name", "size"),
+                                   العملاء=("Customer Name", "nunique"),
+                                   أيام_عمل=("Visit Date", lambda s: s.dt.date.nunique()))
+                 .reset_index().rename(columns={"m": "الشهر", "أيام_عمل": "أيام عمل"}))
+        wk = (per.assign(w=per["Visit Date"].dt.to_period("W").apply(lambda p: p.start_time.strftime("%Y-%m-%d")))
+                .groupby("w").agg(الزيارات=("Customer Name", "size"),
+                                  العملاء=("Customer Name", "nunique"))
+                .reset_index().rename(columns={"w": "الأسبوع (يبدأ)"}))
+        day = (per.assign(d=per["Visit Date"].dt.strftime("%Y-%m-%d"))
+                 .groupby("d").agg(الزيارات=("Customer Name", "size"),
+                                   العملاء=("Customer Name", "nunique"))
+                 .reset_index().rename(columns={"d": "اليوم"}))
+        wd = (per.assign(dw=per["Visit Date"].dt.dayofweek.map(_WEEKDAYS_AR))
+                .groupby("dw").size().reindex(_WEEKDAY_ORDER).fillna(0).astype(int)
+                .reset_index().rename(columns={"dw": "اليوم", 0: "الزيارات"}))
+        wd.columns = ["اليوم", "الزيارات"]
+    else:
+        mon = wk = day = wd = pd.DataFrame()
+    out["visits_monthly"], out["visits_weekly"] = mon, wk
+    out["visits_daily"], out["visits_weekday"] = day, wd
+
+    # ── 2) زيارات غير المهتمين والمتوقفين ──
+    wasted = per[per["Display Status"].isin(WASTED_STATUSES)] if len(per) else pd.DataFrame()
+    if len(wasted):
+        summ = (wasted.groupby("Display Status")
+                .agg(الزيارات=("Customer Name", "size"), العملاء=("Customer Name", "nunique"))
+                .reset_index().rename(columns={"Display Status": "الحالة"}))
+        summ["معدل تكرار الزيارة للعميل"] = (summ["الزيارات"] / summ["العملاء"]).round(2)
+        summ["% من زيارات الفترة"] = (summ["الزيارات"] / len(per) * 100).round(1)
+        total = pd.DataFrame([["الإجمالي", len(wasted), wasted["Customer Name"].nunique(),
+                               round(len(wasted) / max(1, wasted["Customer Name"].nunique()), 2),
+                               round(len(wasted) / len(per) * 100, 1)]], columns=summ.columns)
+        out["wasted_summary"] = pd.concat([summ, total], ignore_index=True)
+        det = wasted.copy()
+        det["التاريخ"] = det["Visit Date"].dt.strftime("%Y-%m-%d")
+        rep_counts = wasted.groupby("Customer Name").size()
+        det["زيارات هذا العميل بالفترة"] = det["Customer Name"].map(rep_counts)
+        out["wasted_detail"] = det[["التاريخ", "Customer Name", "Display Status", "_gov",
+                                    "زيارات هذا العميل بالفترة", "Visit Notes"]].rename(
+            columns={"Customer Name": "العميل", "Display Status": "الحالة",
+                     "_gov": "المحافظة", "Visit Notes": "الملاحظة"}).sort_values("التاريخ")
+    else:
+        out["wasted_summary"] = out["wasted_detail"] = pd.DataFrame()
+
+    # ── 3) التحويلات إلى عميل حالي ──
+    first_visit = dict(zip(journey_df["Customer Name"], journey_df["First Visit Date"])) \
+        if not journey_df.empty else {}
+    def _conv_table(frame):
+        if frame is None or frame.empty:
+            return pd.DataFrame()
+        t = frame.copy()
+        t["تاريخ التحوّل"] = pd.to_datetime(t["Transition Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+        t["أيام حتى التحويل"] = [
+            (pd.to_datetime(d) - pd.to_datetime(first_visit.get(c))).days
+            if first_visit.get(c) is not None and pd.notnull(first_visit.get(c)) else None
+            for c, d in zip(t["Customer Name"], t["Transition Date"])]
+        t["الحالة الحالية"] = t["Customer Name"].map(status_map)
+        return t[["Customer Name", "From Status", "تاريخ التحوّل", "أيام حتى التحويل",
+                  "الحالة الحالية", "Governorate"]].rename(
+            columns={"Customer Name": "العميل", "From Status": "الحالة السابقة",
+                     "Governorate": "المحافظة"}).sort_values("تاريخ التحوّل")
+    out["conv_detail_period"] = _conv_table(conv_per)
+    out["conv_detail_all"] = _conv_table(conv_all)
+    avg_days = out["conv_detail_period"]["أيام حتى التحويل"].dropna().mean() if len(out["conv_detail_period"]) else None
+    avg_all = out["conv_detail_all"]["أيام حتى التحويل"].dropna().mean() if len(out["conv_detail_all"]) else None
+    out["conv_summary"] = pd.DataFrame([
+        ["تحويلات في الفترة", len(conv_per), f"{avg_days:.0f} يوم" if pd.notnull(avg_days) else "—"],
+        ["تحويلات تراكمية (كل تاريخ المندوب)", len(conv_all), f"{avg_all:.0f} يوم" if pd.notnull(avg_all) else "—"],
+        ["ما زالوا عملاء حاليين الآن",
+         int(sum(1 for c in conv_all["Customer Name"] if status_map.get(c) == "Current Customer")) if len(conv_all) else 0, ""],
+    ], columns=["البند", "العدد", "متوسط أيام التحويل"])
+
+    # ── 4) أكثر العملاء زيارة (الفترة + تراكمي) ──
+    if len(per):
+        cum = rep_all.groupby("Customer Name").size()
+        top = (per.groupby("Customer Name")
+               .agg(زيارات_الفترة=("Visit Date", "size"),
+                    آخر_زيارة=("Visit Date", "max"), المحافظة=("_gov", "last"))
+               .reset_index())
+        top["زيارات تراكمية مع المندوب"] = top["Customer Name"].map(cum)
+        top["الحالة الحالية"] = top["Customer Name"].map(status_map)
+        top["أيام منذ آخر زيارة"] = top["Customer Name"].map(days_map)
+        top["آخر_زيارة"] = top["آخر_زيارة"].dt.strftime("%Y-%m-%d")
+        out["top_customers"] = (top.sort_values(["زيارات_الفترة", "زيارات تراكمية مع المندوب"],
+                                                ascending=False).head(30)
+                                .rename(columns={"Customer Name": "العميل",
+                                                 "زيارات_الفترة": "زيارات الفترة",
+                                                 "آخر_زيارة": "آخر زيارة"}))
+        sd = per["Display Status"].value_counts().reset_index()
+        sd.columns = ["الحالة", "الزيارات"]
+        out["status_mix"] = sd
+    else:
+        out["top_customers"] = out["status_mix"] = pd.DataFrame()
+
+    # ── 5) الوعود (كل تاريخ المندوب — غير مقيدة بالفترة) ──
+    pr = extract_promises(classified_df, journey_df)
+    if not pr.empty:
+        pr = pr[pr["Sales Rep Name"] == rep].copy()
+    if not pr.empty:
+        pr["تاريخ الوعد"] = pd.to_datetime(pr["تاريخ الوعد"], errors="coerce").dt.strftime("%Y-%m-%d")
+        pr["الاستحقاق"] = pd.to_datetime(pr["الاستحقاق"], errors="coerce").dt.strftime("%Y-%m-%d")
+        out["promises"] = pr[["Customer Name", "نوع الوعد", "تاريخ الوعد", "الاستحقاق",
+                              "حالة الوعد", "الحالة الحالية", "Governorate"]].rename(
+            columns={"Customer Name": "العميل", "Governorate": "المحافظة"})
+        out["promises_summary"] = (pr["حالة الوعد"].value_counts().reset_index()
+                                   .set_axis(["حالة الوعد", "العدد"], axis=1))
+    else:
+        out["promises"] = out["promises_summary"] = pd.DataFrame()
+
+    # ── 6) المنافسون في محافظات المندوب ──
+    comp = competitor_mentions(classified_df, journey_df)
+    men = comp["mentions"]
+    rep_govs = set(rep_all["_gov"].unique())
+    if not men.empty:
+        men = men.copy()
+        men["_gov"] = men["Governorate"].map(lambda g: gov_map.get(str(g).strip(), str(g).strip()))
+        men = men[men["_gov"].isin(rep_govs)]
+    if not men.empty:
+        md = pd.to_datetime(men["Visit Date"], errors="coerce")
+        in_per = (md.dt.year == year) & ((month is None) | (md.dt.month == month))
+        summ = (men.groupby("المنافس")
+                .agg(عدد_العملاء=("Customer Name", "nunique"), إشارات=("Customer Name", "size"))
+                .reset_index())
+        summ["ذُكر في الفترة"] = summ["المنافس"].map(men[in_per].groupby("المنافس").size()).fillna(0).astype(int)
+        out["competitors"] = summ.sort_values("عدد_العملاء", ascending=False).rename(
+            columns={"عدد_العملاء": "عدد العملاء"})
+        out["competitor_matrix"] = men.pivot_table(index="_gov", columns="المنافس",
+                                                   values="Customer Name", aggfunc="nunique",
+                                                   fill_value=0).reset_index().rename(columns={"_gov": "المحافظة"})
+        lose = men[men["الحالة الحالية"].isin(["Not Interested", "Former Customer", "Target Customer"])]
+        out["competitor_losing"] = (lose.drop_duplicates(["Customer Name", "المنافس"])
+                                    [["المنافس", "Customer Name", "الحالة الحالية", "_gov"]]
+                                    .rename(columns={"Customer Name": "العميل", "_gov": "المحافظة"})
+                                    .sort_values("المنافس").head(200))
+    else:
+        out["competitors"] = out["competitor_matrix"] = out["competitor_losing"] = pd.DataFrame()
+
+    # ── 7) عملاء مهملون من محفظة المندوب ──
+    portfolio = rep_all["Customer Name"].unique()
+    if len(portfolio) and not journey_df.empty:
+        neg = journey_df[journey_df["Customer Name"].isin(portfolio)].copy()
+        neg["Days Since Last Visit"] = pd.to_numeric(neg["Days Since Last Visit"], errors="coerce")
+        buckets = [(30, 60), (60, 90), (90, 9999)]
+        rows = [["30-59 يوم", int(((neg["Days Since Last Visit"] >= 30) & (neg["Days Since Last Visit"] < 60)).sum())],
+                ["60-89 يوم", int(((neg["Days Since Last Visit"] >= 60) & (neg["Days Since Last Visit"] < 90)).sum())],
+                ["90+ يوم",   int((neg["Days Since Last Visit"] >= 90).sum())]]
+        out["neglected_summary"] = pd.DataFrame(rows, columns=["الفئة", "عدد العملاء"])
+        det = neg[neg["Days Since Last Visit"] >= 30].sort_values("Days Since Last Visit", ascending=False)
+        det["Last Visit Date"] = pd.to_datetime(det["Last Visit Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+        out["neglected_detail"] = det[["Customer Name", "Latest Status", "Days Since Last Visit",
+                                       "Last Visit Date", "Visit Count", "Governorate"]].rename(
+            columns={"Customer Name": "العميل", "Latest Status": "الحالة", "Visit Count": "إجمالي الزيارات",
+                     "Days Since Last Visit": "أيام منذ آخر زيارة", "Last Visit Date": "آخر زيارة",
+                     "Governorate": "المحافظة"}).head(300)
+    else:
+        out["neglected_summary"] = out["neglected_detail"] = pd.DataFrame()
+
+    # ── 8) جودة الأداء والتسجيل ──
+    nomeet = per[per["Display Status"] == "No Meeting"] if len(per) else pd.DataFrame()
+    if len(nomeet):
+        nm = nomeet.copy(); nm["التاريخ"] = nm["Visit Date"].dt.strftime("%Y-%m-%d")
+        out["nomeeting_detail"] = nm[["التاريخ", "Customer Name", "_gov", "Visit Notes"]].rename(
+            columns={"Customer Name": "العميل", "_gov": "المحافظة", "Visit Notes": "الملاحظة"})
+    else:
+        out["nomeeting_detail"] = pd.DataFrame()
+
+    if not rep_trans.empty:
+        mv = rep_trans[(rep_trans["Transition Date"].dt.year == year) &
+                       ((month is None) | (rep_trans["Transition Date"].dt.month == month))]
+        out["portfolio_moves"] = (mv.groupby(["From Status", "To Status"]).size()
+                                  .reset_index(name="عدد العملاء")
+                                  .rename(columns={"From Status": "من", "To Status": "إلى"})
+                                  .sort_values("عدد العملاء", ascending=False)) if len(mv) else pd.DataFrame()
+    else:
+        out["portfolio_moves"] = pd.DataFrame()
+
+    nq = note_quality(per) if len(per) else pd.DataFrame()
+    out["note_quality"] = nq[nq["Sales Rep Name"] == rep] if len(nq) else pd.DataFrame()
+
+    if len(per):
+        dup = (per.groupby(["Customer Name", per["Visit Date"].dt.strftime("%Y-%m-%d")])
+               .size().reset_index(name="عدد الزيارات"))
+        dup.columns = ["العميل", "التاريخ", "عدد الزيارات"]
+        out["same_day_dupes"] = dup[dup["عدد الزيارات"] > 1].sort_values("عدد الزيارات", ascending=False)
+        geo = (per.groupby("_gov").agg(الزيارات=("Customer Name", "size"),
+                                       العملاء=("Customer Name", "nunique")).reset_index()
+               .rename(columns={"_gov": "المحافظة"}).sort_values("الزيارات", ascending=False))
+        out["geo_distribution"] = geo
+    else:
+        out["same_day_dupes"] = out["geo_distribution"] = pd.DataFrame()
+
+    return out

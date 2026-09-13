@@ -27,7 +27,9 @@ from export_manager import (
     export_executive_dashboard, export_classification_results,
     export_followup_customers, export_monthly_report,
 )
+from rep_report import export_rep_report
 from insights import (
+    rep_report_data,
     extract_promises, next_best_visits, competitor_mentions,
     weekday_productivity, note_quality, data_quality_summary,
     engine_agreement, unclassified_phrases, period_comparison,
@@ -1406,6 +1408,66 @@ elif page == "أداء المندوبين":
         with col:
             section(title_f)
             st.plotly_chart(fig, use_container_width=True)
+
+    # ── Per-rep detailed Excel report ──
+    section("تقرير المندوب التفصيلي", "REP REPORT")
+    st.markdown("اختر المندوب والفترة لتوليد ملف Excel من **9 شيتات** ببيانات الزيارات، "
+                "التحويلات، الوعود، المنافسين والعملاء المهملين — مع رسوم بيانية.")
+    _master = st.session_state["classified_df"].copy()
+    _master["Visit Date"] = pd.to_datetime(_master["Visit Date"], errors="coerce")
+    _MONTHS = {1:"يناير",2:"فبراير",3:"مارس",4:"أبريل",5:"مايو",6:"يونيو",
+               7:"يوليو",8:"أغسطس",9:"سبتمبر",10:"أكتوبر",11:"نوفمبر",12:"ديسمبر"}
+    _years = sorted(_master["Visit Date"].dt.year.dropna().unique().astype(int).tolist())
+    _reps  = sorted([r for r in _master["Sales Rep Name"].dropna().unique() if str(r).strip()])
+
+    if not _years or not _reps:
+        st.info("لا توجد بيانات كافية لتوليد التقرير")
+    else:
+        rr1, rr2, rr3, rr4 = st.columns([1.4, 1.2, 1, 1.1])
+        with rr1:
+            rp_rep = st.selectbox("المندوب", _reps, key="rp_rep")
+        with rr2:
+            rp_year = st.selectbox("السنة", _years, index=len(_years) - 1, key="rp_year")
+        with rr3:
+            _months = sorted(_master[_master["Visit Date"].dt.year == rp_year]["Visit Date"]
+                             .dt.month.dropna().unique().astype(int).tolist())
+            rp_month = st.selectbox("الشهر", ["كل الشهور"] + _months,
+                                    format_func=lambda m: m if m == "كل الشهور" else _MONTHS[m],
+                                    key="rp_month")
+        with rr4:
+            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+            gen = st.button("⚙️ تجهيز التقرير", use_container_width=True, key="rp_gen")
+
+        if gen:
+            with st.spinner("📑 تجهيز تقرير المندوب..."):
+                _m = None if rp_month == "كل الشهور" else int(rp_month)
+                _data = rep_report_data(_master, st.session_state["journey_df"],
+                                        rp_rep, int(rp_year), _m)
+                st.session_state["_rep_report"] = {
+                    "bytes": export_rep_report(_data),
+                    "name": f"Rep_Report_{rp_rep}_{rp_year}"
+                            f"{'' if _m is None else '-' + str(_m).zfill(2)}.xlsx",
+                    "head": _data["header"], "kpis": _data["kpis"], "ratios": _data["ratios"],
+                }
+
+        _rr = st.session_state.get("_rep_report")
+        if _rr:
+            h = _rr["head"]
+            st.success(f"✅ **{h['rep']}** — {h['period']} · المحافظات: {h['governorates']}")
+            _k = _rr["kpis"].set_index("المؤشر")["الفترة الحالية"]
+            stat_cards([
+                {"label": "الزيارات",        "value": fmt_number(_k.get("إجمالي الزيارات", 0)), "accent": "#2DD4BF"},
+                {"label": "عملاء تمت زيارتهم","value": fmt_number(_k.get("عملاء تمت زيارتهم", 0)), "accent": "#4C9AFF"},
+                {"label": "أيام عمل فعلية",  "value": fmt_number(_k.get("أيام عمل فعلية", 0)), "accent": "#FFC000"},
+                {"label": "تحويلات لحالي",   "value": fmt_number(_k.get("تحويلات إلى عميل حالي", 0)),
+                 "color": "#9CD07E", "accent": "#70AD47"},
+                {"label": "زيارات غير منتجة",
+                 "value": str(_rr["ratios"].set_index("المؤشر")["القيمة"].get("نسبة الزيارات غير المنتجة", "—")),
+                 "color": "#F08080", "accent": "#F08080"},
+            ], cols=5)
+            st.download_button("⬇ تحميل تقرير المندوب (Excel)", data=_rr["bytes"],
+                               file_name=_rr["name"], use_container_width=True, key="rp_dl",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     # ── Weekday productivity matrix (design style: dots for zeros) ──
     section("إنتاجية أيام الأسبوع", "WEEKDAY PRODUCTIVITY")
