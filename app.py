@@ -46,6 +46,7 @@ from storage_manager import (
     get_auto_dedup, set_auto_dedup, drop_exact_duplicates,
     remove_duplicate_visits, restore_removed_duplicates, load_removed_duplicates,
 )
+from branding import FAVICON, MOTION_CSS, sidebar_brand, splash_card
 
 # ═══════════════════════════════════════════════════════════════════
 # PAGE CONFIG
@@ -53,7 +54,7 @@ from storage_manager import (
 
 st.set_page_config(
     page_title="WDI Visit Analytics Engine",
-    page_icon="📊",
+    page_icon=FAVICON,
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -73,6 +74,7 @@ except Exception:
 st.markdown(f"""
 <style>
 {_FONT_CSS}
+{MOTION_CSS}
 :root {{
     --bg:#0F1417; --side:#0A0E11; --card:#161D24; --card2:#10171D;
     --border:#1D262F; --border2:#2A3540;
@@ -564,14 +566,7 @@ if not st.session_state["processing_done"] and not st.session_state["storage_loa
 # ═══════════════════════════════════════════════════════════════════
 
 with st.sidebar:
-    st.markdown("""
-    <div style="display:flex;align-items:center;gap:11px;padding:14px 6px 16px">
-        <div style="width:38px;height:38px;border-radius:9px;background:#2DD4BF;display:flex;align-items:center;justify-content:center;color:#0A0E11;font-weight:700;font-size:16px">W</div>
-        <div>
-            <div style="font-size:15px;font-weight:700;letter-spacing:.3px;color:#E6EDF3">WDI Analytics</div>
-            <div style="font-size:10px;color:#566573;margin-top:2px">Visit Analytics Engine v2.0</div>
-        </div>
-    </div>""", unsafe_allow_html=True)
+    sidebar_brand()
     st.markdown("---")
 
     page = st.radio("Navigation", options=[
@@ -726,14 +721,7 @@ if page == "مركز الرفع":
                     st.success("✅ تم التصنيف والحفظ! يمكنك الآن التنقل بين الصفحات.")
                     st.balloons()
     else:
-        st.markdown("""
-        <div class="section-card" style="text-align:center;padding:40px">
-            <div style="width:54px;height:54px;margin:0 auto 14px;border-radius:12px;background:rgba(45,212,191,.12);border:1px solid rgba(45,212,191,.3);display:flex;align-items:center;justify-content:center;color:#2DD4BF;font-weight:700;font-size:22px">W</div>
-            <div style="font-size:18px;font-weight:700;color:#E6EDF3">WDI Visit Analytics Engine</div>
-            <div style="font-size:12.5px;color:#8B98A5;max-width:460px;margin:8px auto 0;line-height:1.9">
-                ارفع ملف Excel لتصنيف الزيارات وتحليل أداء المندوبين تلقائياً — بدون إنترنت.
-            </div>
-        </div>""", unsafe_allow_html=True)
+        splash_card()
 
         with st.expander("📋 الأعمدة المطلوبة"):
             chips = "".join(f'<span class="wdi-chip">{_html.escape(c)}</span>' for c in REQUIRED_COLUMNS)
