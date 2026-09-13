@@ -29,7 +29,7 @@ from export_manager import (
 )
 from rep_report import export_rep_report
 from insights import (
-    rep_report_data,
+    rep_report_data, find_duplicate_visits, find_rep_merge_candidates,
     extract_promises, next_best_visits, competitor_mentions,
     weekday_productivity, note_quality, data_quality_summary,
     engine_agreement, unclassified_phrases, period_comparison,
@@ -41,6 +41,9 @@ from storage_manager import (
     export_unclassified, import_overrides, clear_overrides, clear_all_data,
     storage_status, VALID_STATUSES, apply_saved_overrides, apply_name_merges,
     load_custom_rules, save_custom_rules, load_name_merges, save_name_merges,
+    load_rep_merges, save_rep_merges, apply_rep_merges,
+    get_auto_dedup, set_auto_dedup, drop_exact_duplicates,
+    remove_duplicate_visits, restore_removed_duplicates, load_removed_duplicates,
 )
 
 # ═══════════════════════════════════════════════════════════════════
@@ -495,6 +498,12 @@ def run_full_pipeline(raw_df: pd.DataFrame, uploaded_file=None):
     with st.spinner("🔄 تنظيف البيانات..."):
         clean = clean_dataframe(raw_df)
         clean = apply_name_merges(clean)
+        clean = apply_rep_merges(clean)
+        if get_auto_dedup():
+            clean, dropped = drop_exact_duplicates(clean)
+            if len(dropped):
+                st.info(f"🧹 تم حذف {len(dropped):,} زيارة مكررة تماماً أثناء الرفع "
+                        "(يمكن إيقاف ذلك من تبويب «التكرارات»)")
         st.session_state["clean_df"] = clean
     with st.spinner("🧠 تصنيف الزيارات..."):
         classified = classify_dataframe(clean)
@@ -1240,10 +1249,72 @@ elif page == "تصنيف العملاء":
                     else:
                         st.error(msg)
 
+        # ══════════ توحيد أسماء المناديب ══════════
+        st.markdown("---")
+        section("توحيد أسماء المناديب", "SALES REP NAMES")
+        st.markdown("المندوب الواحد قد يُسجَّل باسمين (بالعربية وبالإنجليزية) فيظهر كمندوبين "
+                    "وتنقسم بياناته. الترشيح يعتمد على **عملاء ومحافظات مشتركة مع أيام عمل "
+                    "شبه معدومة** — لأن الشخص لا يُسجَّل باسمين في نفس اليوم.")
+
+        rep_merges = load_rep_merges()
+        rep_cand = find_rep_merge_candidates(master_df)
+        _reps_now = sorted([r for r in master_df["Sales Rep Name"].dropna().unique() if str(r).strip()])
+        stat_cards([
+            {"label": "عدد المناديب حالياً", "value": fmt_number(len(_reps_now)), "accent": "#2DD4BF"},
+            {"label": "أزواج مرشحة للمراجعة", "value": fmt_number(len(rep_cand)), "accent": "#FFC000"},
+            {"label": "أسماء موحّدة سابقاً", "value": fmt_number(len(rep_merges)), "accent": "#8B98A5"},
+        ], cols=3)
+
+        if not rep_cand.empty:
+            st.markdown("**أقوى المرشحين** (مرتبة بمؤشر الترجيح):")
+            html_table(rep_cand.head(8)[["الاسم الأول", "الاسم الثاني", "عملاء مشتركون",
+                                         "تطابق المحافظات %", "أيام عمل مشتركة", "الفترتان",
+                                         "مؤشر الترجيح"]],
+                       color_cols={"مؤشر الترجيح": "#2DD4BF"},
+                       cond_colors={"أيام عمل مشتركة":
+                                    lambda v: "#70AD47" if float(v) <= 2 else "#F08080"},
+                       height=260)
+            st.caption("أيام عمل مشتركة قليلة = مرجّح أنه نفس الشخص · كثيرة = زميلان في نفس المنطقة")
+
+        st.markdown("**اختر الأسماء التي تخص مندوباً واحداً** (لا يتم أي دمج تلقائي):")
+        mg1, mg2 = st.columns([2, 1])
+        with mg1:
+            variants = st.multiselect("الأسماء المراد دمجها", _reps_now, key="rep_variants")
+        with mg2:
+            canonical = st.selectbox("الاسم الموحّد", variants or ["—"], key="rep_canon")
+        if len(variants) >= 2 and canonical in variants:
+            _n_visits = int(master_df["Sales Rep Name"].isin(variants).sum())
+            if st.button(f"✅ اعتماد دمج {len(variants)} أسماء ({_n_visits:,} زيارة)",
+                         use_container_width=True, key="rep_merge_apply"):
+                new_rows = pd.DataFrame([{"Variant": v, "Canonical": canonical}
+                                         for v in variants if v != canonical])
+                combined = (pd.concat([rep_merges, new_rows], ignore_index=True)
+                            .drop_duplicates(subset=["Variant"], keep="last"))
+                ok_s, msg = save_rep_merges(combined)
+                if ok_s:
+                    st.session_state["classified_df"] = apply_rep_merges(st.session_state["classified_df"])
+                    refresh_after_name_merges()
+                    st.success(f"✅ تم دمج {len(new_rows)} اسم في «{canonical}»")
+                    st.rerun()
+                else:
+                    st.error(msg)
+
+        if not rep_merges.empty:
+            st.markdown("**عمليات الدمج المعتمدة للمناديب**")
+            html_table(rep_merges.rename(columns={"Variant": "الاسم المدموج",
+                                                  "Canonical": "الاسم الموحّد"}), height=180)
+            if st.button("↩️ تراجع عن كل دمج للمناديب", key="rep_undo"):
+                ok_s, msg = save_rep_merges(pd.DataFrame(columns=["Variant", "Canonical"]))
+                if ok_s:
+                    st.session_state["classified_df"] = apply_rep_merges(st.session_state["classified_df"])
+                    refresh_after_name_merges()
+                    st.success("✅ تم التراجع واستعادة أسماء المناديب الأصلية")
+                    st.rerun()
+
         # ── Approved merges + undo ──
         if not merges.empty:
             st.markdown("---")
-            st.markdown("#### 📋 عمليات الدمج المعتمدة")
+            st.markdown("#### 📋 عمليات الدمج المعتمدة (العملاء)")
             st.dataframe(merges.reset_index(drop=True), use_container_width=True, hide_index=True, height=260)
             undo_canons = st.multiselect("↩️ اختر أسماء موحّدة للتراجع عن دمجها",
                                          sorted(merges["Canonical"].unique().tolist()), key="undo_merges")
@@ -1971,84 +2042,180 @@ elif page == "جودة البيانات والمحرك":
 
     master_df = st.session_state["classified_df"]
 
-    # ── Data health (design: percent-based colored KPIs) ──
-    dq = data_quality_summary(master_df)
-    _pct = lambda n: f"{n / max(1, dq['total']) * 100:.1f}%"
-    stat_cards([
-        {"label": "إجمالي السجلات", "value": fmt_number(dq["total"])},
-        {"label": "بلا مندوب",      "value": _pct(dq["no_rep"]),
-         "color": "#FFC000" if dq["no_rep"] else "#70AD47"},
-        {"label": "بلا محافظة",     "value": _pct(dq["no_gov"]),
-         "color": "#FFC000" if dq["no_gov"] else "#70AD47"},
-        {"label": "بلا ملاحظة",     "value": _pct(dq["no_note"]),
-         "color": "#F08080" if dq["no_note"] else "#70AD47"},
-        {"label": "تكرارات مطابقة", "value": fmt_number(dq["exact_dups"]),
-         "color": "#F08080" if dq["exact_dups"] else "#70AD47"},
-    ], cols=5)
-    if dq["no_rep"] > dq["total"] * 0.1:
-        st.warning(f"⚠️ **{dq['no_rep']:,}** زيارة ({dq['no_rep']/max(1,dq['total'])*100:.0f}%) بدون اسم مندوب — راجع ملف المصدر، هذه الزيارات لا تُحسب لأي مندوب في التقارير.")
+    q_tab1, q_tab2 = st.tabs(["🩺 صحة البيانات والمحرك", "🧹 التكرارات"])
 
-    # ── Engine accuracy vs manual ──
-    section("🎯 دقة المحرك مقابل التصنيف اليدوي")
-    st.markdown("يُعاد تصنيف الزيارات المصنفة يدوياً بالمحرك الحالي وتُقارن النتيجة بقرار الموظف.")
-    if st.button("▶️ تشغيل القياس", key="run_agreement"):
-        with st.spinner("قياس التطابق..."):
-            st.session_state["_agreement"] = engine_agreement(master_df)
-    agr = st.session_state.get("_agreement")
-    if agr and "engine_blind" not in agr:
-        agr = None  # stale result from an older app version
-    if agr and agr["n"]:
-        a1, a2, a3 = st.columns(3)
-        a1.metric("زيارات مصنفة يدوياً", fmt_number(agr["n"]))
-        a2.metric("المحرك بلا رأي فيها", fmt_number(agr["engine_blind"]),
-                  help="زيارات لا تطابق أي قاعدة كلمات — لهذا صُنفت يدوياً. كلما أضفت قواعد جديدة انخفض هذا الرقم")
-        a3.metric("التطابق حيث للمحرك رأي",
-                  f"{agr['agreement']}%" if agr["agreement"] is not None else "—",
-                  help=f"مقارنة على {agr['n_opinion']} زيارة يستطيع المحرك تصنيفها")
-        if not agr["confusion"].empty:
-            st.markdown("**مصفوفة المقارنة (صفوف: قرار الموظف — أعمدة: قرار المحرك)**")
-            st.dataframe(agr["confusion"], use_container_width=True)
-        if not agr["samples"].empty:
-            with st.expander(f"أمثلة على الاختلاف ({len(agr['samples'])})"):
-                st.dataframe(agr["samples"], use_container_width=True, height=320)
+    with q_tab2:
+        section("حصر الزيارات المكررة", "DUPLICATE VISITS")
+        dup = find_duplicate_visits(master_df)
+        ds = dup["stats"]
+        stat_cards([
+            {"label": "إجمالي الزيارات", "value": fmt_number(ds["total"]), "accent": "#2DD4BF"},
+            {"label": "مجموعات تطابق تام", "value": fmt_number(ds["exact_groups"]), "accent": "#F08080"},
+            {"label": "صفوف زائدة للحذف", "value": fmt_number(ds["exact_extra"]),
+             "color": "#F08080", "accent": "#F08080"},
+            {"label": "نسبة من الإجمالي",
+             "value": f"{ds['exact_extra'] / max(1, ds['total']) * 100:.2f}%", "accent": "#FFC000"},
+            {"label": "تحتاج مراجعة يدوية",
+             "value": fmt_number(ds["field_diff_groups"] + ds["note_diff_groups"]),
+             "color": "#FFC000", "accent": "#FFC000"},
+        ], cols=5)
 
-    # ── Rule suggestions from unclassified ──
-    section("💡 عبارات مرشحة لقواعد جديدة")
-    st.markdown("أكثر العبارات تكراراً في الزيارات **غير المصنفة أو ضعيفة الثقة** — أضفها كقواعد من تبويب (قواعد الكلمات).")
-    phrases = unclassified_phrases(master_df)
-    if phrases.empty:
-        st.success("✅ لا توجد عبارات متكررة غير مغطاة — المحرك يغطي البيانات الحالية جيداً")
-    else:
-        chips = "".join(
-            f'<span class="wdi-chip">{_html.escape(str(r["العبارة"]))} <b>×{r["التكرار"]}</b></span>'
-            for _, r in phrases.iterrows())
-        st.markdown(f'<div class="section-card" style="direction:rtl">{chips}</div>',
+        # ── 1) تطابق تام ──
+        section("🔴 تكرار تام — تطابق في كل أعمدة الملف", "EXACT DUPLICATES")
+        if ds["exact_extra"] == 0:
+            st.success("✅ لا توجد زيارات مكررة تماماً")
+        else:
+            st.markdown("النسختان متطابقتان في **كل** بيانات الزيارة. سيُحتفظ بنسخة واحدة "
+                        "من كل مجموعة — ولا يتأثر أي تصنيف يدوي لأن مفتاحه يطابق النسختين.")
+            html_table(dup["exact_groups"], badge_cols=("الحالة",),
+                       color_cols={"سيُحذف": "#F08080"}, height=340, index_col=True)
+            dc1, dc2 = st.columns([1, 1])
+            with dc1:
+                _xlsx_download(dup["exact_rows"].drop(columns=["_grp", "_keep", "_row"], errors="ignore"),
+                               "⬇ تصدير الصفوف قبل الحذف", "Duplicate_Visits.xlsx", key="dl_dupes")
+            with dc2:
+                if st.button(f"🗑 حذف التكرارات ({ds['exact_extra']} صفاً)",
+                             use_container_width=True, key="dup_del", type="primary"):
+                    st.session_state["_dup_confirm"] = True
+            if st.session_state.get("_dup_confirm"):
+                st.warning(f"⚠️ سيتم حذف **{ds['exact_extra']}** صفاً وإعادة بناء كل التحليلات. "
+                           "يمكن التراجع بعدها من زر الاسترجاع.")
+                cc1, cc2 = st.columns(2)
+                with cc1:
+                    if st.button("✅ تأكيد الحذف", use_container_width=True, key="dup_ok"):
+                        kept, n, msg = remove_duplicate_visits(st.session_state["classified_df"])
+                        if n:
+                            st.session_state["classified_df"] = kept
+                            refresh_after_name_merges()
+                            st.session_state["_dup_confirm"] = False
+                            st.success(msg); st.rerun()
+                        else:
+                            st.error(msg)
+                with cc2:
+                    if st.button("❌ إلغاء", use_container_width=True, key="dup_cancel"):
+                        st.session_state["_dup_confirm"] = False
+                        st.rerun()
+
+        # ── استرجاع ──
+        _removed = load_removed_duplicates()
+        if not _removed.empty:
+            st.markdown("---")
+            st.info(f"↩️ يوجد **{len(_removed):,}** صف محذوف محفوظ — يمكن استرجاعه")
+            rc1, rc2 = st.columns([1, 1])
+            with rc1:
+                _xlsx_download(_removed, "⬇ تحميل الصفوف المحذوفة", "Removed_Duplicates.xlsx", key="dl_removed")
+            with rc2:
+                if st.button("↩️ استرجاع الصفوف المحذوفة", use_container_width=True, key="dup_restore"):
+                    back, n, msg = restore_removed_duplicates(st.session_state["classified_df"])
+                    if n:
+                        st.session_state["classified_df"] = back
+                        refresh_after_name_merges()
+                        st.success(msg); st.rerun()
+                    else:
+                        st.error(msg)
+
+        # ── إعداد الحذف التلقائي ──
+        st.markdown("---")
+        _auto = st.checkbox("حذف التكرارات المطابقة تلقائياً عند رفع أي ملف جديد",
+                            value=get_auto_dedup(), key="dup_auto",
+                            help="بدون هذا الخيار سترجع التكرارات مع كل رفعة جديدة")
+        if _auto != get_auto_dedup():
+            set_auto_dedup(_auto)
+            st.success("✅ تم حفظ الإعداد")
+
+        # ── 2) اختلاف حقل ──
+        section("🟡 تطابق مع اختلاف حقل — مراجعة يدوية", "FIELD MISMATCH")
+        st.markdown("نفس التاريخ والعميل والمندوب والملاحظة، لكن حقلاً آخر مختلف "
+                    "(محافظة أو فئة) — **لا تُحذف آلياً** لأن الحذف يعني اختيار قيمة على حساب الأخرى.")
+        html_table(dup["field_diff"], height=220, index_col=True)
+
+        # ── 3) ملاحظات مختلفة ──
+        section("⚪ نفس العميل واليوم والمندوب بملاحظات مختلفة", "SAME DAY, DIFFERENT NOTES")
+        st.markdown("غالباً زيارات منفصلة حقيقية أو إدخال مزدوج بتفاصيل مختلفة — **للعرض والمراجعة فقط**.")
+        html_table(dup["note_diff"], height=280, index_col=True)
+        if not dup["note_diff"].empty:
+            _xlsx_download(dup["note_diff"], "⬇ تصدير القائمة", "SameDay_Different_Notes.xlsx", key="dl_notediff")
+
+    with q_tab1:
+
+        # ── Data health (design: percent-based colored KPIs) ──
+        dq = data_quality_summary(master_df)
+        _pct = lambda n: f"{n / max(1, dq['total']) * 100:.1f}%"
+        stat_cards([
+            {"label": "إجمالي السجلات", "value": fmt_number(dq["total"])},
+            {"label": "بلا مندوب",      "value": _pct(dq["no_rep"]),
+             "color": "#FFC000" if dq["no_rep"] else "#70AD47"},
+            {"label": "بلا محافظة",     "value": _pct(dq["no_gov"]),
+             "color": "#FFC000" if dq["no_gov"] else "#70AD47"},
+            {"label": "بلا ملاحظة",     "value": _pct(dq["no_note"]),
+             "color": "#F08080" if dq["no_note"] else "#70AD47"},
+            {"label": "تكرارات مطابقة", "value": fmt_number(dq["exact_dups"]),
+             "color": "#F08080" if dq["exact_dups"] else "#70AD47"},
+        ], cols=5)
+        if dq["no_rep"] > dq["total"] * 0.1:
+            st.warning(f"⚠️ **{dq['no_rep']:,}** زيارة ({dq['no_rep']/max(1,dq['total'])*100:.0f}%) بدون اسم مندوب — راجع ملف المصدر، هذه الزيارات لا تُحسب لأي مندوب في التقارير.")
+
+        # ── Engine accuracy vs manual ──
+        section("🎯 دقة المحرك مقابل التصنيف اليدوي")
+        st.markdown("يُعاد تصنيف الزيارات المصنفة يدوياً بالمحرك الحالي وتُقارن النتيجة بقرار الموظف.")
+        if st.button("▶️ تشغيل القياس", key="run_agreement"):
+            with st.spinner("قياس التطابق..."):
+                st.session_state["_agreement"] = engine_agreement(master_df)
+        agr = st.session_state.get("_agreement")
+        if agr and "engine_blind" not in agr:
+            agr = None  # stale result from an older app version
+        if agr and agr["n"]:
+            a1, a2, a3 = st.columns(3)
+            a1.metric("زيارات مصنفة يدوياً", fmt_number(agr["n"]))
+            a2.metric("المحرك بلا رأي فيها", fmt_number(agr["engine_blind"]),
+                      help="زيارات لا تطابق أي قاعدة كلمات — لهذا صُنفت يدوياً. كلما أضفت قواعد جديدة انخفض هذا الرقم")
+            a3.metric("التطابق حيث للمحرك رأي",
+                      f"{agr['agreement']}%" if agr["agreement"] is not None else "—",
+                      help=f"مقارنة على {agr['n_opinion']} زيارة يستطيع المحرك تصنيفها")
+            if not agr["confusion"].empty:
+                st.markdown("**مصفوفة المقارنة (صفوف: قرار الموظف — أعمدة: قرار المحرك)**")
+                st.dataframe(agr["confusion"], use_container_width=True)
+            if not agr["samples"].empty:
+                with st.expander(f"أمثلة على الاختلاف ({len(agr['samples'])})"):
+                    st.dataframe(agr["samples"], use_container_width=True, height=320)
+
+        # ── Rule suggestions from unclassified ──
+        section("💡 عبارات مرشحة لقواعد جديدة")
+        st.markdown("أكثر العبارات تكراراً في الزيارات **غير المصنفة أو ضعيفة الثقة** — أضفها كقواعد من تبويب (قواعد الكلمات).")
+        phrases = unclassified_phrases(master_df)
+        if phrases.empty:
+            st.success("✅ لا توجد عبارات متكررة غير مغطاة — المحرك يغطي البيانات الحالية جيداً")
+        else:
+            chips = "".join(
+                f'<span class="wdi-chip">{_html.escape(str(r["العبارة"]))} <b>×{r["التكرار"]}</b></span>'
+                for _, r in phrases.iterrows())
+            st.markdown(f'<div class="section-card" style="direction:rtl">{chips}</div>',
+                        unsafe_allow_html=True)
+
+        # ── Completeness detail grid (design) ──
+        section("إحصائيات الاكتمال", "COMPLETENESS")
+        from classification_engine import ACTIVE_RULES as _RULES
+        _details = [
+            ("بلا تاريخ", fmt_number(dq["no_date"])),
+            ("بلا مندوب (عدد)", fmt_number(dq["no_rep"])),
+            ("بلا محافظة (عدد)", fmt_number(dq["no_gov"])),
+            ("بلا ملاحظة (عدد)", fmt_number(dq["no_note"])),
+            ("تكرارات مطابقة (عدد)", fmt_number(dq["exact_dups"])),
+            ("إجمالي قواعد المحرك", fmt_number(len(_RULES))),
+        ]
+        _dcards = "".join(
+            f'<div style="background:#10171D;border:1px solid #1D262F;border-radius:8px;'
+            f'padding:11px 14px;display:flex;justify-content:space-between;align-items:center">'
+            f'<span style="font-size:12px;color:#8B98A5">{lbl}</span>'
+            f'<span style="font-size:15px;font-weight:700;color:#E6EDF3">{val}</span></div>'
+            for lbl, val in _details)
+        st.markdown(f'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;direction:rtl">{_dcards}</div>',
                     unsafe_allow_html=True)
 
-    # ── Completeness detail grid (design) ──
-    section("إحصائيات الاكتمال", "COMPLETENESS")
-    from classification_engine import ACTIVE_RULES as _RULES
-    _details = [
-        ("بلا تاريخ", fmt_number(dq["no_date"])),
-        ("بلا مندوب (عدد)", fmt_number(dq["no_rep"])),
-        ("بلا محافظة (عدد)", fmt_number(dq["no_gov"])),
-        ("بلا ملاحظة (عدد)", fmt_number(dq["no_note"])),
-        ("تكرارات مطابقة (عدد)", fmt_number(dq["exact_dups"])),
-        ("إجمالي قواعد المحرك", fmt_number(len(_RULES))),
-    ]
-    _dcards = "".join(
-        f'<div style="background:#10171D;border:1px solid #1D262F;border-radius:8px;'
-        f'padding:11px 14px;display:flex;justify-content:space-between;align-items:center">'
-        f'<span style="font-size:12px;color:#8B98A5">{lbl}</span>'
-        f'<span style="font-size:15px;font-weight:700;color:#E6EDF3">{val}</span></div>'
-        for lbl, val in _details)
-    st.markdown(f'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;direction:rtl">{_dcards}</div>',
-                unsafe_allow_html=True)
 
-
-# ═══════════════════════════════════════════════════════════════════
-# PAGE 6 — SETTINGS
-# ═══════════════════════════════════════════════════════════════════
+    # ═══════════════════════════════════════════════════════════════════
+    # PAGE 6 — SETTINGS
+    # ═══════════════════════════════════════════════════════════════════
 
 elif page == "الإعدادات":
     page_banner("الإعدادات", "SETTINGS — إعداد مسار البيانات المشتركة وإدارة التخزين", PAGE_ACCENT["settings"])

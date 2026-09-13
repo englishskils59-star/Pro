@@ -102,6 +102,8 @@ def _paths() -> dict:
         "raw_backup":   d / "last_upload.xlsx",
         "custom_rules": d / "custom_rules.json",
         "name_merges":  d / "name_merges.parquet",
+        "rep_merges":   d / "rep_merges.parquet",
+        "removed_dupes": d / "removed_duplicates.parquet",
     }
 
 
@@ -252,8 +254,9 @@ def load_session() -> tuple[bool, dict]:
             from utils import clean_rep_name
             classified_df["Sales Rep Name"] = classified_df["Sales Rep Name"].apply(clean_rep_name)
 
-        # Apply saved name merges, then saved overrides
+        # Apply saved name merges (customers then reps), then saved overrides
         classified_df = apply_name_merges(classified_df)
+        classified_df = apply_rep_merges(classified_df)
         _rekey_overrides_if_needed(classified_df)
         classified_df, override_count = _apply_saved_overrides(classified_df)
 
@@ -347,7 +350,13 @@ def _visit_key_series(df: pd.DataFrame) -> pd.Series:
     else:
         cust = df["Customer Name"] if "Customer Name" in df.columns else [""] * len(df)
     date = df["Visit Date"]     if "Visit Date"     in df.columns else [""] * len(df)
-    rep  = df["Sales Rep Name"] if "Sales Rep Name" in df.columns else [""] * len(df)
+    # نفس المبدأ للمندوب: توحيد أسماء المناديب يجب ألا يكسر التصنيفات اليدوية
+    if "Sales Rep Name Original" in df.columns:
+        rorig = df["Sales Rep Name Original"].fillna("").astype(str)
+        rdisp = df["Sales Rep Name"].astype(str) if "Sales Rep Name" in df.columns else rorig
+        rep = np.where(rorig != "", rorig, rdisp)
+    else:
+        rep = df["Sales Rep Name"] if "Sales Rep Name" in df.columns else [""] * len(df)
     note = df["Visit Notes"]    if "Visit Notes"    in df.columns else [""] * len(df)
     return pd.Series(
         [_visit_key(c, d, r, n) for c, d, r, n in zip(cust, date, rep, note)],
@@ -827,6 +836,125 @@ def apply_name_merges(df: pd.DataFrame) -> pd.DataFrame:
     keys = list(zip(gov, df["Customer Name"].astype(str)))
     df["Customer Name"] = [mapping.get(k, k[1]) for k in keys]
     return df
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SALES-REP NAME MERGES  —  توحيد أسماء المناديب
+# ═══════════════════════════════════════════════════════════════════
+
+def load_rep_merges() -> pd.DataFrame:
+    """أعمدة: Variant (الاسم كما هو مسجل) و Canonical (الاسم الموحّد)."""
+    p = _paths()["rep_merges"]
+    if not p.exists():
+        return pd.DataFrame(columns=["Variant", "Canonical"])
+    try:
+        return _parquet_to_df(p, parse_dates=False)
+    except Exception:
+        return pd.DataFrame(columns=["Variant", "Canonical"])
+
+
+def save_rep_merges(merges_df: pd.DataFrame) -> tuple[bool, str]:
+    try:
+        with _write_lock():
+            _df_to_parquet(_as_text(merges_df), _paths()["rep_merges"])
+        return True, "✅ تم حفظ توحيد أسماء المناديب"
+    except Exception as e:
+        return False, f"❌ خطأ: {e}"
+
+
+def apply_rep_merges(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    يطبّق الدمج المعتمد على أسماء المناديب. الاسم الأصلي محفوظ دائماً في
+    'Sales Rep Name Original' — وهو المستخدم في مفتاح التصنيف اليدوي،
+    فلا يتأثر أي تصنيف محفوظ بالتوحيد، ويمكن التراجع عنه.
+    """
+    if df.empty or "Sales Rep Name" not in df.columns:
+        return df
+    df = df.copy()
+    if "Sales Rep Name Original" in df.columns:
+        restored = df["Sales Rep Name Original"].fillna("").astype(str)
+        df["Sales Rep Name"] = np.where(restored != "", restored, df["Sales Rep Name"])
+    else:
+        df["Sales Rep Name Original"] = df["Sales Rep Name"]
+
+    merges = load_rep_merges()
+    if merges.empty:
+        return df
+    mapping = {safe_str(r["Variant"]): safe_str(r["Canonical"]) for _, r in merges.iterrows()}
+    df["Sales Rep Name"] = df["Sales Rep Name"].astype(str).map(lambda v: mapping.get(v, v))
+    return df
+
+
+# ═══════════════════════════════════════════════════════════════════
+# DUPLICATE VISITS  —  حذف الزيارات المكررة والتراجع عنه
+# ═══════════════════════════════════════════════════════════════════
+
+def get_auto_dedup() -> bool:
+    """هل تُحذف التكرارات المطابقة تلقائياً عند رفع ملف جديد؟"""
+    return bool(load_config().get("auto_dedup", True))
+
+
+def set_auto_dedup(value: bool):
+    cfg = load_config()
+    cfg["auto_dedup"] = bool(value)
+    save_config(cfg)
+
+
+def drop_exact_duplicates(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """يُبقي أول نسخة من كل مجموعة متطابقة. يعيد (البيانات بعد الحذف، المحذوف)."""
+    from insights import DUP_SOURCE_COLS
+    cols = [c for c in DUP_SOURCE_COLS if c in df.columns]
+    if not cols or df.empty:
+        return df, pd.DataFrame()
+    dup_mask = df.duplicated(subset=cols, keep="first")
+    return df[~dup_mask].copy(), df[dup_mask].copy()
+
+
+def remove_duplicate_visits(df: pd.DataFrame) -> tuple[pd.DataFrame, int, str]:
+    """حذف التكرارات المطابقة مع حفظ المحذوف للتراجع."""
+    kept, removed = drop_exact_duplicates(df)
+    if removed.empty:
+        return df, 0, "لا توجد تكرارات مطابقة"
+    try:
+        prev = pd.DataFrame()
+        p = _paths()["removed_dupes"]
+        if p.exists():
+            try:
+                prev = _parquet_to_df(p)
+            except Exception:
+                prev = pd.DataFrame()
+        combined = pd.concat([prev, removed], ignore_index=True) if not prev.empty else removed
+        with _write_lock():
+            _df_to_parquet(combined, p)
+        return kept, len(removed), f"✅ تم حذف {len(removed)} زيارة مكررة"
+    except Exception as e:
+        return df, 0, f"❌ خطأ أثناء الحذف: {e}"
+
+
+def load_removed_duplicates() -> pd.DataFrame:
+    p = _paths()["removed_dupes"]
+    if not p.exists():
+        return pd.DataFrame()
+    try:
+        return _parquet_to_df(p)
+    except Exception:
+        return pd.DataFrame()
+
+
+def restore_removed_duplicates(df: pd.DataFrame) -> tuple[pd.DataFrame, int, str]:
+    """إرجاع الصفوف المحذوفة إلى البيانات."""
+    removed = load_removed_duplicates()
+    if removed.empty:
+        return df, 0, "لا توجد صفوف محذوفة للاسترجاع"
+    try:
+        restored = pd.concat([df, removed], ignore_index=True)
+        if "Visit Date" in restored.columns:
+            restored = restored.sort_values("Visit Date", kind="stable").reset_index(drop=True)
+        with _write_lock():
+            _paths()["removed_dupes"].unlink(missing_ok=True)
+        return restored, len(removed), f"✅ تم استرجاع {len(removed)} زيارة"
+    except Exception as e:
+        return df, 0, f"❌ خطأ أثناء الاسترجاع: {e}"
 
 
 # ═══════════════════════════════════════════════════════════════════

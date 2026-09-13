@@ -991,3 +991,168 @@ def rep_report_data(classified_df: pd.DataFrame, journey_df: pd.DataFrame,
         out["same_day_dupes"] = out["geo_distribution"] = pd.DataFrame()
 
     return out
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 11) DUPLICATE VISITS  —  حصر الزيارات المكررة
+# ═══════════════════════════════════════════════════════════════════
+
+# أعمدة الملف الأصلي التي يتحدد بها "التطابق التام"
+DUP_SOURCE_COLS = [
+    "Year", "Month", "Visit Date", "Customer Name", "Customer Category",
+    "Governorate", "District", "Visit Notes", "Total Visit Flag",
+    "Unique Customer Flag", "Sales Rep Name", "Current Customer",
+    "Target Customer", "Potential Customer", "New Customer",
+    "Not Interested Customer", "Former Customer",
+]
+_DUP_KEY3 = ["Visit Date", "Customer Name", "Sales Rep Name"]
+
+
+def find_duplicate_visits(df: pd.DataFrame) -> dict:
+    """
+    ثلاث فئات:
+      exact      — تطابق في كل أعمدة الملف الأصلي  (حذفها آمن)
+      field_diff — تطابق في التاريخ/العميل/المندوب/الملاحظة مع اختلاف حقل آخر
+      note_diff  — نفس العميل واليوم والمندوب بملاحظات مختلفة (زيارات منفصلة غالباً)
+    """
+    out = {k: pd.DataFrame() for k in
+           ("exact_groups", "exact_rows", "field_diff", "note_diff")}
+    out["stats"] = {"total": len(df), "exact_extra": 0, "exact_groups": 0,
+                    "field_diff_groups": 0, "note_diff_groups": 0}
+    if df.empty:
+        return out
+
+    cols = [c for c in DUP_SOURCE_COLS if c in df.columns]
+    key4 = [c for c in ["Visit Date", "Customer Name", "Sales Rep Name", "Visit Notes"]
+            if c in df.columns]
+    work = df.copy()
+    work["_row"] = work.index
+
+    # ── 1) تطابق تام ──
+    exact_mask = work.duplicated(subset=cols, keep=False)
+    if exact_mask.any():
+        ex = work[exact_mask].copy()
+        ex["_grp"] = ex.groupby(cols, dropna=False, sort=False).ngroup() + 1
+        ex = ex.sort_values(["_grp", "_row"])
+        ex["_keep"] = ~ex.duplicated(subset=cols, keep="first")
+        out["exact_rows"] = ex
+        g = (ex.groupby("_grp")
+               .agg(العميل=("Customer Name", "first"),
+                    التاريخ=("Visit Date", "first"),
+                    المندوب=("Sales Rep Name", "first"),
+                    المحافظة=("Governorate", "first") if "Governorate" in ex.columns else ("Customer Name", "first"),
+                    الحالة=("Display Status", "first") if "Display Status" in ex.columns else ("Customer Name", "first"),
+                    عدد_النسخ=("Customer Name", "size"),
+                    الملاحظة=("Visit Notes", "first"))
+               .reset_index(drop=True))
+        g["التاريخ"] = pd.to_datetime(g["التاريخ"], errors="coerce").dt.strftime("%Y-%m-%d")
+        g["الملاحظة"] = g["الملاحظة"].astype(str).str.slice(0, 90)
+        g["سيُحذف"] = g["عدد_النسخ"] - 1
+        out["exact_groups"] = g.rename(columns={"عدد_النسخ": "عدد النسخ"})
+        out["stats"]["exact_groups"] = len(g)
+        out["stats"]["exact_extra"] = int((~ex["_keep"]).sum())
+
+    # ── 2) تطابق مع اختلاف حقل واحد ──
+    if key4:
+        k4 = work[work.duplicated(subset=key4, keep=False)]
+        rows = []
+        for _, grp in k4.groupby(key4, dropna=False, sort=False):
+            varying = [c for c in cols if c not in key4 and grp[c].astype(str).nunique() > 1]
+            if not varying:
+                continue
+            r = grp.iloc[0]
+            rows.append({
+                "العميل": r.get("Customer Name"),
+                "التاريخ": str(pd.to_datetime(r.get("Visit Date"), errors="coerce"))[:10],
+                "المندوب": r.get("Sales Rep Name") or "(بدون مندوب)",
+                "الحقول المختلفة": "، ".join(varying),
+                "القيم": " ⟷ ".join(
+                    " / ".join(sorted(grp[c].astype(str).unique())) for c in varying)[:120],
+                "عدد النسخ": len(grp),
+            })
+        out["field_diff"] = pd.DataFrame(rows)
+        out["stats"]["field_diff_groups"] = len(rows)
+
+    # ── 3) نفس اليوم والعميل والمندوب بملاحظات مختلفة ──
+    k3 = [c for c in _DUP_KEY3 if c in work.columns]
+    if k3 and key4:
+        near = work[work.duplicated(subset=k3, keep=False)
+                    & ~work.duplicated(subset=key4, keep=False)]
+        if not near.empty:
+            rows = []
+            for _, grp in near.groupby(k3, dropna=False, sort=False):
+                r = grp.iloc[0]
+                rows.append({
+                    "العميل": r.get("Customer Name"),
+                    "التاريخ": str(pd.to_datetime(r.get("Visit Date"), errors="coerce"))[:10],
+                    "المندوب": r.get("Sales Rep Name") or "(بدون مندوب)",
+                    "عدد الزيارات": len(grp),
+                    "الملاحظات": " ⟷ ".join(grp["Visit Notes"].astype(str).str.slice(0, 60)),
+                })
+            out["note_diff"] = pd.DataFrame(rows)
+            out["stats"]["note_diff_groups"] = len(rows)
+    return out
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 12) REP NAME CANDIDATES — أسماء مناديب قد تكون لنفس الشخص
+# ═══════════════════════════════════════════════════════════════════
+
+def find_rep_merge_candidates(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    يقترح أزواج أسماء قد تخص مندوباً واحداً (مثل الاسم بالعربية وبالإنجليزية).
+    الدليل الحاسم ليس تشابه الحروف — بل: عملاء ومحافظات مشتركة
+    مع **أيام عمل مشتركة شبه معدومة** (الشخص لا يُسجَّل باسمين في نفس اليوم).
+    لا يتم أي دمج تلقائي — القرار للمستخدم.
+    """
+    if df.empty or "Sales Rep Name" not in df.columns:
+        return pd.DataFrame()
+    d = df.copy()
+    d["Visit Date"] = pd.to_datetime(d["Visit Date"], errors="coerce")
+    reps = [r for r in d["Sales Rep Name"].dropna().unique() if str(r).strip()]
+    if len(reps) < 2:
+        return pd.DataFrame()
+
+    info = {}
+    for r in reps:
+        s = d[d["Sales Rep Name"] == r]
+        info[r] = dict(cust=set(s["Customer Name"]),
+                       gov=set(s["Governorate"].dropna()) if "Governorate" in s.columns else set(),
+                       days=set(s["Visit Date"].dt.date.dropna()),
+                       n=len(s), first=s["Visit Date"].min(), last=s["Visit Date"].max())
+
+    rows = []
+    from itertools import combinations
+    for a, b in combinations(reps, 2):
+        A, B = info[a], info[b]
+        shared = len(A["cust"] & B["cust"])
+        if shared < 3:                     # دليل أضعف من أن يُعرض
+            continue
+        cust_ov = shared / max(1, len(A["cust"] | B["cust"]))
+        gov_ov = len(A["gov"] & B["gov"]) / max(1, len(A["gov"] | B["gov"])) if (A["gov"] | B["gov"]) else 0
+        same_days = len(A["days"] & B["days"])
+        # قوة الدليل من التداخل، ويخصم منها تضارب أيام العمل:
+        # الشخص الواحد لا يُسجَّل باسمين في نفس اليوم، أما زميلان في نفس
+        # المنطقة فيشتركان في عملاء كثيرين وفي أيام عمل كثيرة أيضاً.
+        strength = cust_ov * 60 + gov_ov * 40
+        conflict = same_days / max(1, min(len(A["days"]), len(B["days"])))
+        score = strength * max(0.0, 1 - conflict)
+        # تتابع الفترتين (تسليم/تغيير صيغة الاسم) دليل إضافي
+        gap = (max(A["first"], B["first"]) - min(A["last"], B["last"])).days
+        seq = "متتابعتان" if gap > -15 else "متداخلتان"
+        rows.append({
+            "الاسم الأول": a, "الاسم الثاني": b,
+            "عملاء مشتركون": shared,
+            "تداخل العملاء %": round(cust_ov * 100, 1),
+            "تطابق المحافظات %": round(gov_ov * 100, 1),
+            "أيام عمل مشتركة": same_days,
+            "الفترتان": seq,
+            "فترة الأول": f"{str(A['first'])[:10]} ← {str(A['last'])[:10]}",
+            "فترة الثاني": f"{str(B['first'])[:10]} ← {str(B['last'])[:10]}",
+            "زيارات الأول": A["n"], "زيارات الثاني": B["n"],
+            "مؤشر الترجيح": round(score, 1),
+        })
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    return out.sort_values("مؤشر الترجيح", ascending=False).reset_index(drop=True)
