@@ -2,7 +2,8 @@
 # WDI Visit Analytics Engine — v2.0
 # Persistent Storage + Override System + 6 Pages
 
-import streamlit as st
+from localization import st, tr, translated, display_value, display_frame, translate_message, language_switcher, document_locale, language
+import streamlit as raw_st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -224,7 +225,7 @@ def badge(status: str) -> str:
     bg, border, color = STATUS_BADGE.get(str(status), STATUS_BADGE["Unclassified"])
     label = STATUS_AR.get(str(status), str(status))
     return (f'<span class="wdi-badge" style="background:{bg};border-color:{border};'
-            f'color:{color}">{_html.escape(label)}</span>')
+            f'color:{color}">{_html.escape(tr(label))}</span>')
 
 
 def html_table(df: pd.DataFrame, badge_cols=(), color_cols=None, height: int = 360,
@@ -244,13 +245,13 @@ def html_table(df: pd.DataFrame, badge_cols=(), color_cols=None, height: int = 3
     ths = ""
     if index_col:
         ths += "<th>#</th>"
-    ths += "".join(f"<th>{_html.escape(str(COL_AR.get(c, c)))}</th>" for c in show.columns)
+    ths += "".join(f"<th>{_html.escape(tr(str(COL_AR.get(c, c))))}</th>" for c in show.columns)
 
     rows = []
     for n, (_, r) in enumerate(show.iterrows(), start=1):
         tds = f'<td style="color:#566573">{n}</td>' if index_col else ""
         for c in show.columns:
-            v = r[c]
+            v = display_value(c, r[c])
             v = "" if (v is None or (isinstance(v, float) and pd.isna(v)) or str(v) == "NaT") else v
             if c in badge_cols:
                 tds += f"<td>{badge(v)}</td>"
@@ -265,10 +266,10 @@ def html_table(df: pd.DataFrame, badge_cols=(), color_cols=None, height: int = 3
                 tds += (f'<td style="color:{color_cols[c]};font-weight:700">'
                         f'{_html.escape(str(v))}</td>')
             else:
-                tds += f"<td>{_html.escape(str(v))}</td>"
+                tds += f"<td><bdi>{_html.escape(str(v))}</bdi></td>"
         rows.append(f"<tr>{tds}</tr>")
 
-    st.markdown(
+    raw_st.markdown(
         f'<div class="wdi-tablewrap" style="max-height:{height}px">'
         f'<table class="wdi-table"><thead><tr>{ths}</tr></thead>'
         f'<tbody>{"".join(rows)}</tbody></table></div>',
@@ -280,13 +281,13 @@ def matrix_table(df: pd.DataFrame, index_label: str = "", height: int = 320):
     if df is None or df.empty:
         st.info("لا توجد بيانات")
         return
-    ths = f"<th>{_html.escape(index_label)}</th>" + "".join(
-        f'<th style="text-align:center">{_html.escape(STATUS_AR.get(str(c), str(c)))}</th>'
+    ths = f"<th>{_html.escape(tr(index_label))}</th>" + "".join(
+        f'<th style="text-align:center">{_html.escape(tr(STATUS_AR.get(str(c), str(c))))}</th>'
         for c in df.columns)
     rows = []
     for idx, r in df.iterrows():
         tds = (f'<td style="font-weight:600;color:#E6EDF3;white-space:nowrap">'
-               f'{_html.escape(STATUS_AR.get(str(idx), str(idx)))}</td>')
+               f'{_html.escape(tr(STATUS_AR.get(str(idx), str(idx))))}</td>')
         for c in df.columns:
             v = r[c]
             try:
@@ -298,7 +299,7 @@ def matrix_table(df: pd.DataFrame, index_label: str = "", height: int = 320):
             else:
                 tds += '<td style="text-align:center;color:#2A3540">·</td>'
         rows.append(f"<tr>{tds}</tr>")
-    st.markdown(
+    raw_st.markdown(
         f'<div class="wdi-tablewrap" style="max-height:{height}px">'
         f'<table class="wdi-table"><thead><tr>{ths}</tr></thead>'
         f'<tbody>{"".join(rows)}</tbody></table></div>',
@@ -313,7 +314,7 @@ def stat_cards(items: list, cols: int = 4):
     """
     cards = ""
     for it in items:
-        top = f'<span class="kpi-label">{_html.escape(str(it["label"]))}</span>'
+        top = f'<span class="kpi-label">{_html.escape(tr(str(it["label"])))}</span>'
         if it.get("accent"):
             top = f'<span class="kpi-dot" style="background:{it["accent"]}"></span>' + top
         vcolor = it.get("color", "#E6EDF3")
@@ -326,12 +327,13 @@ def stat_cards(items: list, cols: int = 4):
             card += f'<div style="font-size:8.5px;color:#566573;letter-spacing:.8px;margin-top:3px">{_html.escape(str(it["en"]))}</div>'
         card += "</div>"
         cards += card
-    st.markdown(
+    raw_st.markdown(
         f'<div class="kpi-grid" style="grid-template-columns:repeat({cols},1fr)">{cards}</div>',
         unsafe_allow_html=True)
 
 
 def page_banner(title, en_subtitle="", accent="#2DD4BF", right_html=""):
+    title, en_subtitle = tr(title), tr(en_subtitle)
     right = (f'<div style="text-align:left;font-size:11.5px;color:#8B98A5;line-height:1.8;'
              f'background:#10171D;border:1px solid #1D262F;border-radius:8px;padding:8px 14px">'
              f'{right_html}</div>') if right_html else ""
@@ -356,10 +358,10 @@ def kpi_row(metrics: dict, cols_per_row: int = 4):
         accent = _KPI_ACCENTS[i % len(_KPI_ACCENTS)]
         cards += (f'<div class="kpi-card"><div class="kpi-top">'
                   f'<span class="kpi-dot" style="background:{accent}"></span>'
-                  f'<span class="kpi-label">{_html.escape(str(label))}</span></div>'
+                  f'<span class="kpi-label">{_html.escape(tr(str(label)))}</span></div>'
                   f'<div class="kpi-value">{val}</div></div>')
     ncols = min(len(items), cols_per_row)
-    st.markdown(f'<div class="kpi-grid" style="grid-template-columns:repeat({ncols},1fr)">{cards}</div>',
+    raw_st.markdown(f'<div class="kpi-grid" style="grid-template-columns:repeat({ncols},1fr)">{cards}</div>',
                 unsafe_allow_html=True)
 
 
@@ -368,6 +370,7 @@ def no_data_warning():
 
 
 def section(title, en=""):
+    title = tr(title)
     en_html = f' <span class="sec-en">{en}</span>' if en else ""
     st.markdown(f'<div class="sec-title">{title}{en_html}</div>', unsafe_allow_html=True)
 
@@ -440,7 +443,7 @@ def view_insights(view: dict) -> dict:
 def _xlsx_download(df: pd.DataFrame, label: str, file_name: str, key: str):
     """Small helper: offer a DataFrame as a styled-enough Excel download."""
     out = io.BytesIO()
-    export_df = df.copy()
+    export_df = display_frame(df) if file_name in {"Visit_Priority_Plan.xlsx", "Promise_Tracker.xlsx", "Losing_To_Competitors.xlsx", "Customer_360.xlsx"} else df.copy()
     for col in export_df.columns:
         if pd.api.types.is_datetime64_any_dtype(export_df[col]):
             export_df[col] = export_df[col].dt.strftime("%Y-%m-%d")
@@ -504,8 +507,7 @@ def run_full_pipeline(raw_df: pd.DataFrame, uploaded_file=None):
         if get_auto_dedup():
             clean, dropped = drop_exact_duplicates(clean)
             if len(dropped):
-                st.info(f"🧹 تم حذف {len(dropped):,} زيارة مكررة تماماً أثناء الرفع "
-                        "(يمكن إيقاف ذلك من تبويب «التكرارات»)")
+                st.info(translated(''.join([tr('🧹 تم حذف '), f'{len(dropped):,}', tr(' زيارة مكررة تماماً أثناء الرفع (يمكن إيقاف ذلك من تبويب «التكرارات»)')])))
         st.session_state["clean_df"] = clean
     with st.spinner("🧠 تصنيف الزيارات..."):
         classified = classify_dataframe(clean)
@@ -513,7 +515,7 @@ def run_full_pipeline(raw_df: pd.DataFrame, uploaded_file=None):
         # so they survive re-uploads of updated files)
         classified, n_overrides = apply_saved_overrides(classified)
         if n_overrides:
-            st.info(f"✏️ تم تطبيق {n_overrides:,} تصنيف يدوي محفوظ على البيانات الجديدة")
+            st.info(translated(''.join([tr('✏️ تم تطبيق '), f'{n_overrides:,}', tr(' تصنيف يدوي محفوظ على البيانات الجديدة')])))
         st.session_state["classified_df"] = classified
     with st.spinner("📖 بناء رحلة العميل..."):
         journey = build_customer_journey(classified)
@@ -567,6 +569,8 @@ if not st.session_state["processing_done"] and not st.session_state["storage_loa
 
 with st.sidebar:
     sidebar_brand()
+    language_switcher()
+    document_locale()
     st.markdown("---")
 
     page = st.radio("Navigation", options=[
@@ -618,21 +622,12 @@ with st.sidebar:
             if st.session_state.get("date_range"):
                 _r = st.session_state["date_range"]
                 st.markdown(
-                    f"<div style='background:rgba(45,212,191,.12);padding:5px 8px;border-radius:6px;font-size:10.5px;color:#2DD4BF'>"
-                    f"الفلتر نشط: {str(_r[0])[:10]} ← {str(_r[1])[:10]}</div>",
+                    translated(''.join([tr("<div style='background:rgba(45,212,191,.12);padding:5px 8px;border-radius:6px;font-size:10.5px;color:#2DD4BF'>الفلتر نشط: "), f'{str(_r[0])[:10]}', ' ← ', f'{str(_r[1])[:10]}', '</div>'])),
                     unsafe_allow_html=True)
         st.markdown("---")
 
-        _ov = f"""<div style="margin-top:8px;background:rgba(112,173,71,.15);border:1px solid rgba(112,173,71,.3);padding:5px 9px;border-radius:6px;font-size:11px;color:#9CD07E">✏ {meta.get('override_count',0)} تصنيف يدوي محفوظ</div>""" if meta.get("override_count", 0) > 0 else ""
-        st.markdown(f"""
-        <div style="background:#10171D;border:1px solid #1D262F;border-radius:9px;padding:12px 13px;font-size:11.5px;line-height:2;color:#8B98A5">
-            <div style="font-size:10px;color:#2DD4BF;font-weight:600;letter-spacing:1px;margin-bottom:5px">البيانات المحملة · DATA</div>
-            <div style="font-weight:600;color:#E6EDF3;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{st.session_state.get('file_name','—')}</div>
-            <div>{fmt_number(len(classified_)) if classified_ is not None else '0'} زيارة · {fmt_number(classified_['Customer Name'].nunique()) if classified_ is not None else '0'} عميل</div>
-            <div>{fmt_number(classified_['Sales Rep Name'].nunique()) if classified_ is not None else '0'} مندوب مبيعات</div>
-            <div style="color:#566573;font-size:10.5px">آخر حفظ: {meta.get('last_saved','—')[:16] if meta.get('last_saved') else '—'}</div>
-            {_ov}
-        </div>""", unsafe_allow_html=True)
+        _ov = translated(''.join(['<div style="margin-top:8px;background:rgba(112,173,71,.15);border:1px solid rgba(112,173,71,.3);padding:5px 9px;border-radius:6px;font-size:11px;color:#9CD07E">✏ ', f"{meta.get('override_count', 0)}", tr(' تصنيف يدوي محفوظ</div>')])) if meta.get("override_count", 0) > 0 else ""
+        st.markdown(translated(''.join([tr('\n        <div style="background:#10171D;border:1px solid #1D262F;border-radius:9px;padding:12px 13px;font-size:11.5px;line-height:2;color:#8B98A5">\n            <div style="font-size:10px;color:#2DD4BF;font-weight:600;letter-spacing:1px;margin-bottom:5px">البيانات المحملة · DATA</div>\n            <div style="font-weight:600;color:#E6EDF3;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'), f"{st.session_state.get('file_name', '—')}", '</div>\n            <div>', f"{(fmt_number(len(classified_)) if classified_ is not None else '0')}", tr(' زيارة · '), f"{(fmt_number(classified_['Customer Name'].nunique()) if classified_ is not None else '0')}", tr(' عميل</div>\n            <div>'), f"{(fmt_number(classified_['Sales Rep Name'].nunique()) if classified_ is not None else '0')}", tr(' مندوب مبيعات</div>\n            <div style="color:#566573;font-size:10.5px">آخر حفظ: '), f"{(meta.get('last_saved', '—')[:16] if meta.get('last_saved') else '—')}", '</div>\n            ', f'{_ov}', '\n        </div>'])), unsafe_allow_html=True)
     else:
         st.info("📂 لا توجد بيانات")
 
@@ -652,12 +647,7 @@ if page == "مركز الرفع":
     # ── Show saved data status ──
     if has_saved_data():
         meta = get_saved_metadata()
-        st.info(f"""
-        💾 **توجد بيانات محفوظة** من جلسة سابقة:
-        الملف: `{meta.get('file_name','—')}` |
-        {fmt_number(meta.get('total_records',0))} زيارة |
-        آخر حفظ: {meta.get('last_saved','—')[:16]}
-        """)
+        st.info(translated(''.join([tr('\n        💾 **توجد بيانات محفوظة** من جلسة سابقة:\n        الملف: `'), f"{meta.get('file_name', '—')}", '` |\n        ', f"{fmt_number(meta.get('total_records', 0))}", tr(' زيارة |\n        آخر حفظ: '), f"{meta.get('last_saved', '—')[:16]}", '\n        '])))
 
     uploaded = st.file_uploader(
         "ارفع ملف Excel هنا",
@@ -683,20 +673,11 @@ if page == "مركز الرفع":
                 if is_valid:
                     st.success("✅ كل الأعمدة المطلوبة موجودة")
                 else:
-                    st.error(f"❌ أعمدة ناقصة: {', '.join(missing)}")
+                    st.error(translated(''.join([tr('❌ أعمدة ناقصة: '), f"{', '.join(missing)}"])))
 
             with c2:
                 stats = basic_stats(raw_df)
-                st.markdown(f"""
-                <div class="section-card">
-                <b>📋 ملخص الملف</b><br><br>
-                📄 <b>{uploaded.name}</b><br>
-                🗒️ {fmt_number(stats['total_records'])} زيارة<br>
-                👥 {fmt_number(stats['unique_customers'])} عميل<br>
-                🧑‍💼 {fmt_number(stats['unique_reps'])} مندوب<br>
-                📅 من {str(stats['date_range_start'])[:10] if stats['date_range_start'] else '—'}<br>
-                📅 إلى {str(stats['date_range_end'])[:10] if stats['date_range_end'] else '—'}
-                </div>""", unsafe_allow_html=True)
+                st.markdown(translated(''.join([tr('\n                <div class="section-card">\n                <b>📋 ملخص الملف</b><br><br>\n                📄 <b>'), f'{uploaded.name}', '</b><br>\n                🗒️ ', f"{fmt_number(stats['total_records'])}", tr(' زيارة<br>\n                👥 '), f"{fmt_number(stats['unique_customers'])}", tr(' عميل<br>\n                🧑\u200d💼 '), f"{fmt_number(stats['unique_reps'])}", tr(' مندوب<br>\n                📅 من '), f"{(str(stats['date_range_start'])[:10] if stats['date_range_start'] else '—')}", tr('<br>\n                📅 إلى '), f"{(str(stats['date_range_end'])[:10] if stats['date_range_end'] else '—')}", '\n                </div>'])), unsafe_allow_html=True)
 
             section("معاينة البيانات")
             st.dataframe(raw_df.head(50), use_container_width=True, height=350)
@@ -847,20 +828,20 @@ elif page == "تصنيف العملاء":
             for col, (s, c) in zip(sm_cols, sm.items()):
                 with col: st.metric(s, c)
 
-            st.info(f"👤 **{len(final_df):,}** عميل فريد")
+            st.info(translated(''.join(['👤 **', f'{len(final_df):,}', tr('** عميل فريد')])))
             st.dataframe(final_df[show_cols].reset_index(drop=True),
                          use_container_width=True, height=500)
 
             out = io.BytesIO()
             with pd.ExcelWriter(out, engine="openpyxl") as w:
-                final_df[show_cols].to_excel(w, index=False, sheet_name="الموقف النهائي")
+                final_df[show_cols].to_excel(w, index=False, sheet_name=tr("الموقف النهائي"))
             st.download_button("⬇️ تحميل الموقف النهائي Excel",
                                data=out.getvalue(),
                                file_name="Final_Customer_Status.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         else:
             # Design-styled visit log (first 300 rows for speed)
-            st.info(f"📋 **{fmt_number(len(filtered))}** نتيجة — يعرض أول 300")
+            st.info(translated(''.join(['📋 **', f'{fmt_number(len(filtered))}', tr('** نتيجة — يعرض أول 300')])))
             _log = filtered.sort_values("Visit Date", ascending=False).head(300).copy()
             _log["Visit Date"] = pd.to_datetime(_log["Visit Date"], errors="coerce").dt.strftime("%Y-%m-%d")
             _log["Visit Notes"] = _log["Visit Notes"].astype(str).str.slice(0, 90)
@@ -902,7 +883,7 @@ elif page == "تصنيف العملاء":
                 c1,c2,c3,c4 = st.columns(4)
                 c1.metric("زيارات", row["Visit Count"])
                 c2.metric("الحالة",  row["Latest Status"])
-                c3.metric("آخر زيارة", str(row.get("Days Since Last Visit","—")) + " يوم")
+                c3.metric("آخر زيارة", str(row.get("Days Since Last Visit","—")) + tr(" يوم"))
                 c4.metric("ثقة", f"{row.get('Latest Confidence',0):.1f}%")
                 st.code(row.get("Status History","—"), language=None)
 
@@ -932,10 +913,10 @@ elif page == "تصنيف العملاء":
         if unclass_count == 0:
             st.success("✅ لا توجد زيارات غير مصنفة!")
         else:
-            st.info(f"يوجد **{unclass_count:,}** زيارة غير مصنفة — حمّل الملف وأضف التصنيف في عمود **Manual Status**")
+            st.info(translated(''.join([tr('يوجد **'), f'{unclass_count:,}', tr('** زيارة غير مصنفة — حمّل الملف وأضف التصنيف في عمود **Manual Status**')])))
             xlsx_unc = export_unclassified(master_df)
             st.download_button(
-                f"⬇️ تحميل الزيارات الغير مصنفة ({unclass_count:,} زيارة)",
+                translated(''.join([tr('⬇️ تحميل الزيارات الغير مصنفة ('), f'{unclass_count:,}', tr(' زيارة)')])),
                 data=xlsx_unc,
                 file_name="Unclassified_Visits.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -946,10 +927,7 @@ elif page == "تصنيف العملاء":
 
         # ── Step 2: Import ──
         st.markdown("#### 2️⃣ رفع الملف بعد التصنيف اليدوي")
-        st.markdown(f"""
-        **القيم المسموح بها في عمود Manual Status:**
-        {' | '.join(['`'+s+'`' for s in VALID_STATUSES])}
-        """)
+        st.markdown(translated(''.join([tr('\n        **القيم المسموح بها في عمود Manual Status:**\n        '), f"{' | '.join(['`' + s + '`' for s in VALID_STATUSES])}", '\n        '])))
 
         override_file = st.file_uploader(
             "ارفع الملف المعدّل هنا",
@@ -991,7 +969,7 @@ elif page == "تصنيف العملاء":
                                 file_name=st.session_state.get("file_name",""),
                             )
 
-                        st.success(f"✅ تم تحديث **{count_changed:,}** زيارة وحفظ البيانات — كل الصفحات تحدّثت!")
+                        st.success(translated(''.join([tr('✅ تم تحديث **'), f'{count_changed:,}', tr('** زيارة وحفظ البيانات — كل الصفحات تحدّثت!')])))
                         st.balloons()
                         st.rerun()
                     else:
@@ -1038,7 +1016,7 @@ elif page == "تصنيف العملاء":
         }
         custom_rules = load_custom_rules()
 
-        with st.expander(f"➕ إضافة / إدارة القواعد المخصصة ({len(custom_rules)} قاعدة مخصصة)", expanded=False):
+        with st.expander(translated(''.join([tr('➕ إضافة / إدارة القواعد المخصصة ('), f'{len(custom_rules)}', tr(' قاعدة مخصصة)')])), expanded=False):
             with st.form("add_rule_form", clear_on_submit=True):
                 rc1, rc2, rc3 = st.columns([2, 1, 1])
                 new_kw     = rc1.text_input("الكلمة / العبارة المفتاحية")
@@ -1052,7 +1030,7 @@ elif page == "تصنيف العملاء":
                         ok, msg = save_custom_rules(custom_rules)
                         if ok:
                             set_custom_rules(custom_rules)
-                            st.success(f"{msg} — اضغط (إعادة التصنيف) بالأسفل لتطبيقها على البيانات")
+                            st.success(translated(''.join([f'{translate_message(msg)}', tr(' — اضغط (إعادة التصنيف) بالأسفل لتطبيقها على البيانات')])))
                         else:
                             st.error(msg)
                     else:
@@ -1072,7 +1050,7 @@ elif page == "تصنيف العملاء":
                     ok, msg = save_custom_rules(remaining)
                     if ok:
                         set_custom_rules(remaining)
-                        st.success(f"{msg} — اضغط (إعادة التصنيف) لتطبيق التغيير")
+                        st.success(translated(''.join([f'{translate_message(msg)}', tr(' — اضغط (إعادة التصنيف) لتطبيق التغيير')])))
                         st.rerun()
                     else:
                         st.error(msg)
@@ -1122,7 +1100,7 @@ elif page == "تصنيف العملاء":
                 with pd.ExcelWriter(out2, engine="openpyxl") as w:
                     exp_out.to_excel(w, index=False)
                 st.download_button(
-                    f"⬇️ تحميل ({sel_exp_status}) — {len(exp_out):,} زيارة",
+                    translated(''.join([tr('⬇️ تحميل ('), f'{sel_exp_status}', ') — ', f'{len(exp_out):,}', tr(' زيارة')])),
                     data=out2.getvalue(),
                     file_name=f"Visits_{sel_exp_status.replace(' ','_')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1188,7 +1166,7 @@ elif page == "تصنيف العملاء":
 
             b1, b2 = st.columns([2, 1])
             with b1:
-                go = st.button(f"✅ اعتماد الدمج المحدد — {len(picked)} مجموعة ({n_names} اسم)",
+                go = st.button(translated(''.join([tr('✅ اعتماد الدمج المحدد — '), f'{len(picked)}', tr(' مجموعة ('), f'{n_names}', tr(' اسم)')])),
                                use_container_width=True, key="merge_bulk",
                                disabled=not picked, type="primary")
             with b2:
@@ -1205,14 +1183,14 @@ elif page == "تصنيف العملاء":
                 ok_s, msg = save_name_merges(combined)
                 if ok_s:
                     refresh_after_name_merges()
-                    st.success(f"✅ تم دمج {len(new_rows)} اسم في {len(picked)} عميل وحفظ البيانات")
+                    st.success(translated(''.join([tr('✅ تم دمج '), f'{len(new_rows)}', tr(' اسم في '), f'{len(picked)}', tr(' عميل وحفظ البيانات')])))
                     st.rerun()
                 else:
                     st.error(msg)
 
             # ── fine control: pick a different canonical for one group ──
             with st.expander("✏️ تعديل مجموعة واحدة (اختيار اسم موحّد مختلف)"):
-                labels = [f"{'⚠️ ' if r['Risky'] else ''}{r['Canonical']} — "
+                labels = [f"{('⚠️ ' if r['Risky'] else '')}{r['Canonical']} — "
                           f"{r['Governorate'] or 'بدون محافظة'} ({len(r['Variants'])} اسم)"
                           for _, r in cand.iterrows()]
                 sel = st.selectbox("اختر مجموعة", labels, key="merge_grp")
@@ -1232,7 +1210,7 @@ elif page == "تصنيف العملاء":
                     ok_s, msg = save_name_merges(combined)
                     if ok_s:
                         refresh_after_name_merges()
-                        st.success(f"✅ تم دمج {len(new_rows)} اسم في «{canonical}»")
+                        st.success(translated(''.join([tr('✅ تم دمج '), f'{len(new_rows)}', tr(' اسم في «'), f'{canonical}', '»'])))
                         st.rerun()
                     else:
                         st.error(msg)
@@ -1270,7 +1248,7 @@ elif page == "تصنيف العملاء":
                 disabled=["الاسم الموحّد", "الإملاءات التي ستُدمج", "النوع", "الثقة", "الزيارات المتأثرة"],
             )
             gpick = gedit.index[gedit["دمج"]].tolist()
-            if st.button(f"✅ اعتماد توحيد {len(gpick)} اقتراح", use_container_width=True,
+            if st.button(translated(''.join([tr('✅ اعتماد توحيد '), f'{len(gpick)}', tr(' اقتراح')])), use_container_width=True,
                          key="gov_bulk", disabled=not gpick):
                 rows = [{"Variant": v, "Canonical": gov_cand.loc[i, "الاسم الموحّد"]}
                         for i in gpick for v in gov_cand.loc[i, "_variants"]]
@@ -1279,7 +1257,7 @@ elif page == "تصنيف العملاء":
                 ok_s, msg = save_gov_merges(combined)
                 if ok_s:
                     refresh_after_name_merges()
-                    st.success(f"✅ تم توحيد {len(rows)} إملاء"); st.rerun()
+                    st.success(translated(''.join([tr('✅ تم توحيد '), f'{len(rows)}', tr(' إملاء')]))); st.rerun()
                 else:
                     st.error(msg)
         else:
@@ -1291,11 +1269,11 @@ elif page == "تصنيف العملاء":
             _gov_list = _gov_counts.index.tolist()
             with gm1:
                 gvars = st.multiselect("القيم المراد دمجها", _gov_list, key="gov_variants",
-                                       format_func=lambda g: f"{g} ({_gov_counts.get(g, 0)} زيارة)")
+                                       format_func=lambda g: translated(''.join([f'{g}', ' (', f'{_gov_counts.get(g, 0)}', tr(' زيارة)')])))
             with gm2:
                 gcanon = st.selectbox("المحافظة الموحّدة", _gov_list, key="gov_canon")
             _gvars = [v for v in gvars if v != gcanon]
-            if _gvars and st.button(f"✅ دمج {len(_gvars)} قيمة في «{gcanon}»",
+            if _gvars and st.button(translated(''.join([tr('✅ دمج '), f'{len(_gvars)}', tr(' قيمة في «'), f'{gcanon}', '»'])),
                                     use_container_width=True, key="gov_manual"):
                 rows = pd.DataFrame([{"Variant": v, "Canonical": gcanon} for v in _gvars])
                 combined = (pd.concat([gov_merges, rows], ignore_index=True)
@@ -1303,7 +1281,7 @@ elif page == "تصنيف العملاء":
                 ok_s, msg = save_gov_merges(combined)
                 if ok_s:
                     refresh_after_name_merges()
-                    st.success(f"✅ تم الدمج في «{gcanon}»"); st.rerun()
+                    st.success(translated(''.join([tr('✅ تم الدمج في «'), f'{gcanon}', '»']))); st.rerun()
                 else:
                     st.error(msg)
 
@@ -1354,7 +1332,7 @@ elif page == "تصنيف العملاء":
             canonical = st.selectbox("الاسم الموحّد", variants or ["—"], key="rep_canon")
         if len(variants) >= 2 and canonical in variants:
             _n_visits = int(master_df["Sales Rep Name"].isin(variants).sum())
-            if st.button(f"✅ اعتماد دمج {len(variants)} أسماء ({_n_visits:,} زيارة)",
+            if st.button(translated(''.join([tr('✅ اعتماد دمج '), f'{len(variants)}', tr(' أسماء ('), f'{_n_visits:,}', tr(' زيارة)')])),
                          use_container_width=True, key="rep_merge_apply"):
                 new_rows = pd.DataFrame([{"Variant": v, "Canonical": canonical}
                                          for v in variants if v != canonical])
@@ -1363,7 +1341,7 @@ elif page == "تصنيف العملاء":
                 ok_s, msg = save_rep_merges(combined)
                 if ok_s:
                     refresh_after_name_merges()
-                    st.success(f"✅ تم دمج {len(new_rows)} اسم في «{canonical}»")
+                    st.success(translated(''.join([tr('✅ تم دمج '), f'{len(new_rows)}', tr(' اسم في «'), f'{canonical}', '»'])))
                     st.rerun()
                 else:
                     st.error(msg)
@@ -1459,16 +1437,14 @@ elif page == "تحليلات العملاء":
         with tab_obj:
             df_nv = analytics.get(key, pd.DataFrame())
             if df_nv.empty:
-                st.info(f"لا يوجد عملاء لم يُزاروا منذ {days} يوماً")
+                st.info(translated(''.join([tr('لا يوجد عملاء لم يُزاروا منذ '), f'{days}', tr(' يوماً')])))
             else:
                 st.markdown(
-                    f'<div style="background:rgba(255,192,0,.08);border:1px solid rgba(255,192,0,.25);'
-                    f'border-radius:7px;padding:8px 13px;font-size:12px;color:#FFC000;margin-bottom:10px">'
-                    f'⚠ {len(df_nv):,} عميل لم يُزار منذ {days}+ يوم</div>', unsafe_allow_html=True)
+                    translated(''.join(['<div style="background:rgba(255,192,0,.08);border:1px solid rgba(255,192,0,.25);border-radius:7px;padding:8px 13px;font-size:12px;color:#FFC000;margin-bottom:10px">⚠ ', f'{len(df_nv):,}', tr(' عميل لم يُزار منذ '), f'{days}', tr('+ يوم</div>')])), unsafe_allow_html=True)
                 html_table(df_nv.head(200).reset_index(drop=True), badge_cols=("Latest Status",),
                            color_cols={"Days Since Last Visit": "#FFC000"}, height=320, index_col=True)
                 xlsx_nv = export_followup_customers(journey_df, days_threshold=days)
-                st.download_button(f"⬇ تصدير قائمة {days} يوم Excel",
+                st.download_button(translated(''.join([tr('⬇ تصدير قائمة '), f'{days}', tr(' يوم Excel')])),
                                    data=xlsx_nv, file_name=f"Followup_{days}_Days.xlsx",
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
@@ -1584,6 +1560,7 @@ elif page == "أداء المندوبين":
                                         rp_rep, int(rp_year), _m)
                 st.session_state["_rep_report"] = {
                     "bytes": export_rep_report(_data),
+                    "source": _data, "language": language(),
                     "name": f"Rep_Report_{rp_rep}_{rp_year}"
                             f"{'' if _m is None else '-' + str(_m).zfill(2)}.xlsx",
                     "head": _data["header"], "kpis": _data["kpis"], "ratios": _data["ratios"],
@@ -1591,8 +1568,11 @@ elif page == "أداء المندوبين":
 
         _rr = st.session_state.get("_rep_report")
         if _rr:
+            if _rr.get("source") is not None and _rr.get("language") != language():
+                _rr["bytes"] = export_rep_report(_rr["source"])
+                _rr["language"] = language()
             h = _rr["head"]
-            st.success(f"✅ **{h['rep']}** — {h['period']} · المحافظات: {h['governorates']}")
+            st.success(translated(''.join(['✅ **', f"{h['rep']}", '** — ', f"{h['period']}", tr(' · المحافظات: '), f"{h['governorates']}"])))
             _k = _rr["kpis"].set_index("المؤشر")["الفترة الحالية"]
             stat_cards([
                 {"label": "الزيارات",        "value": fmt_number(_k.get("إجمالي الزيارات", 0)), "accent": "#2DD4BF"},
@@ -1670,7 +1650,7 @@ elif page == "أداء المندوبين":
         if df_mf.empty:
             st.warning("لا توجد بيانات بهذه الفلاتر")
         else:
-            st.info(f"📊 زيارات: **{len(df_mf):,}** | عملاء: **{df_mf['Customer Name'].nunique():,}**")
+            st.info(translated(''.join([tr('📊 زيارات: **'), f'{len(df_mf):,}', tr('** | عملاء: **'), f"{df_mf['Customer Name'].nunique():,}", '**'])))
             df_mf["Month_Period"] = df_mf["Visit Date"].dt.to_period("M").astype(str)
             monthly_rep = df_mf.groupby(["Month_Period","Sales Rep Name"]).size().reset_index(name="Visits")
 
@@ -1714,9 +1694,7 @@ elif page == "لوحة التحكم التنفيذية":
     rng = st.session_state.get("date_range")
     period_label = f"{str(rng[0])[:10]} ← {str(rng[1])[:10]}" if rng else "كل البيانات"
     page_banner("لوحة التحكم التنفيذية", "EXECUTIVE DASHBOARD", PAGE_ACCENT["exec"],
-                right_html=(f"<div>الفترة: <span style='color:#E6EDF3'>{period_label}</span></div>"
-                            f"<div>{fmt_number(len(view['classified']))} زيارة · "
-                            f"{fmt_number(journey_df['Customer Name'].nunique() if not journey_df.empty else 0)} عميل</div>"))
+                right_html=(translated(''.join([tr("<div>الفترة: <span style='color:#E6EDF3'>"), tr(period_label), '</span></div><div>', f"{fmt_number(len(view['classified']))}", tr(' زيارة · '), f"{fmt_number(journey_df['Customer Name'].nunique() if not journey_df.empty else 0)}", tr(' عميل</div>')]))))
 
     # ── KPI cards (design: 8 Arabic cards with accents) ──
     _KPI_SPEC = [
@@ -1736,7 +1714,7 @@ elif page == "لوحة التحكم التنفيذية":
     funnel_pre = exec_data.get("funnel", {})
     cmp = period_comparison(view["classified"], funnel_pre.get("transitions", pd.DataFrame()))
     if cmp["metrics"]:
-        section(f"مقارنة شهرية — {cmp['cur_label']} مقابل {cmp['prev_label']}", "MONTH OVER MONTH")
+        section(translated(''.join([tr('مقارنة شهرية — '), f"{cmp['cur_label']}", tr(' مقابل '), f"{cmp['prev_label']}"])), "MONTH OVER MONTH")
         _cmp_items = []
         for label, cur, prev in cmp["metrics"]:
             d = int(cur - prev)
@@ -1783,13 +1761,13 @@ elif page == "لوحة التحكم التنفيذية":
     stat_cards([
         {"label": "إجمالي التحوّلات",      "value": fmt_number(len(trans_df))},
         {"label": "تحوّلوا إلى عميل حالي", "value": fmt_number(len(conv_df)),  "color": "#70AD47"},
-        {"label": "متوسط أيام التحويل",    "value": f"{avg_days:.0f} يوم" if pd.notnull(avg_days) else "—"},
+        {"label": "متوسط أيام التحويل",    "value": translated(''.join([f'{avg_days:.0f}', tr(' يوم')])) if pd.notnull(avg_days) else "—"},
         {"label": "معدل بقاء المحوّلين",   "value": f"{ret['retention_pct']}%" if ret["retention_pct"] is not None else "—", "color": "#2DD4BF"},
         {"label": "عملاء متسربون",         "value": fmt_number(len(churn_df)), "color": "#F08080"},
     ], cols=5)
 
     if not ret["lost_after_conversion"].empty:
-        with st.expander(f"⚠️ عملاء تحوّلوا لحاليين ثم فُقدوا ({len(ret['lost_after_conversion'])})"):
+        with st.expander(translated(''.join([tr('⚠️ عملاء تحوّلوا لحاليين ثم فُقدوا ('), f"{len(ret['lost_after_conversion'])}", ')']))):
             st.dataframe(ret["lost_after_conversion"], use_container_width=True)
 
     if not trans_df.empty:
@@ -1805,7 +1783,7 @@ elif page == "لوحة التحكم التنفيذية":
                 st.plotly_chart(funnel["fig_rep_conversions"], use_container_width=True)
 
         if not conv_df.empty:
-            with st.expander(f"👀 تفاصيل العملاء المتحوّلين إلى (حالي) — {len(conv_df):,} عميل"):
+            with st.expander(translated(''.join([tr('👀 تفاصيل العملاء المتحوّلين إلى (حالي) — '), f'{len(conv_df):,}', tr(' عميل')]))):
                 show_conv = conv_df.copy()
                 for dc in ["Transition Date", "First Visit Date"]:
                     if dc in show_conv.columns:
@@ -1817,7 +1795,7 @@ elif page == "لوحة التحكم التنفيذية":
     if churn_df.empty:
         st.success("✅ لا يوجد عملاء متسربون")
     else:
-        st.error(f"🚨 {len(churn_df)} عميل كان يتعامل معنا وآخر حالته الآن (سابق / غير مهتم) — قائمة إنقاذ")
+        st.error(translated(''.join(['🚨 ', f'{len(churn_df)}', tr(' عميل كان يتعامل معنا وآخر حالته الآن (سابق / غير مهتم) — قائمة إنقاذ')])))
         show_churn = churn_df.copy()
         if "Last Visit Date" in show_churn.columns:
             show_churn["Last Visit Date"] = pd.to_datetime(show_churn["Last Visit Date"], errors="coerce").dt.strftime("%Y-%m-%d")
@@ -1860,16 +1838,21 @@ elif page == "لوحة التحكم التنفيذية":
                 vi = view_insights(view)
                 promises_df = vi["promises"]
                 due = promises_df[promises_df["حالة الوعد"] == "🔥 مستحق الآن"] if not promises_df.empty else pd.DataFrame()
-                report_bytes = export_monthly_report(cmp, {
+                report_sheets = {
                     "التحويلات لعميل حالي": funnel_pre.get("conversions", pd.DataFrame()),
                     "العملاء المتسربون":    funnel_pre.get("churn", pd.DataFrame()),
                     "الوعود المستحقة":      due,
                     "أولويات الزيارة":      vi["nbv"].head(150),
                     "المنافسون":            vi["competitors"]["by_competitor"],
                     "ترتيب المندوبين":      rep_kpi_df,
-                })
-                st.session_state["_monthly_report"] = report_bytes
+                }
+                st.session_state["_monthly_report_source"] = (cmp, report_sheets)
+                st.session_state["_monthly_report"] = export_monthly_report(cmp, report_sheets)
+                st.session_state["_monthly_report_language"] = language()
         if st.session_state.get("_monthly_report"):
+            if st.session_state.get("_monthly_report_source") and st.session_state.get("_monthly_report_language") != language():
+                st.session_state["_monthly_report"] = export_monthly_report(*st.session_state["_monthly_report_source"])
+                st.session_state["_monthly_report_language"] = language()
             st.download_button("⬇️ تحميل التقرير الشهري الشامل.xlsx",
                                data=st.session_state["_monthly_report"],
                                file_name="WDI_Monthly_Report.xlsx",
@@ -1958,7 +1941,7 @@ elif page == "خطة المتابعة":
                     "#70AD47" if "تحول" in s else
                     "#4C9AFF" if "متابع" in s else "#FFC000")
 
-        st.info(f"🤝 {len(show_p):,} وعد")
+        st.info(translated(''.join(['🤝 ', f'{len(show_p):,}', tr(' وعد')])))
         html_table(show_p[_p_cols].reset_index(drop=True),
                    cond_colors={"حالة الوعد": _pstate_color}, height=420)
         if not show_p.empty:
@@ -2043,7 +2026,7 @@ elif page == "عميل 360":
     _fv = str(pd.to_datetime(jrow.get("First Visit Date"), errors="coerce"))[:10]
     _lv = str(pd.to_datetime(jrow.get("Last Visit Date"), errors="coerce"))[:10]
     stat_cards([
-        {"label": "الحالة الأخيرة", "value": STATUS_AR.get(jrow["Latest Status"], jrow["Latest Status"]),
+        {"label": "الحالة الأخيرة", "value": tr(STATUS_AR.get(jrow["Latest Status"], jrow["Latest Status"])),
          "color": STATUS_COLORS.get(jrow["Latest Status"], "#E6EDF3")},
         {"label": "عدد الزيارات", "value": fmt_number(int(jrow["Visit Count"])), "color": "#2DD4BF"},
         {"label": "أول زيارة", "value": _fv if _fv != "NaT" else "—"},
@@ -2056,11 +2039,11 @@ elif page == "عميل 360":
     my_prom = promises_df[promises_df["Customer Name"] == sel360] if not promises_df.empty else pd.DataFrame()
     if not my_prom.empty:
         p = my_prom.iloc[0]
-        st.warning(f"🤝 وعد نشط: **{p['نوع الوعد']}** منذ {int(p['أيام منذ الوعد'])} يوم — الحالة: {p['حالة الوعد']}")
+        st.warning(translated(''.join([tr('🤝 وعد نشط: **'), tr(p['نوع الوعد']), tr('** منذ '), f"{int(p['أيام منذ الوعد'])}", tr(' يوم — الحالة: '), tr(p['حالة الوعد'])])))
     my_comp = view["competitors"]["mentions"]
     my_comp = my_comp[my_comp["Customer Name"] == sel360] if not my_comp.empty else pd.DataFrame()
     if not my_comp.empty:
-        st.error("🥊 مرتبط بمنافس: " + "، ".join(sorted(my_comp["المنافس"].unique())))
+        st.error(translated(tr("🥊 مرتبط بمنافس: ") + "، ".join(sorted(my_comp["المنافس"].unique()))))
 
     # ── Visit timeline (design-styled) ──
     section("الخط الزمني للزيارات", "VISIT TIMELINE")
@@ -2073,20 +2056,9 @@ elif page == "عميل 360":
         conf = r.get("Confidence Score", 0)
         rep = _html.escape(str(r.get("Sales Rep Name", "") or "—"))
         note = _html.escape(str(r.get("Visit Notes", "") or ""))
-        items += f"""
-        <div style="display:flex;gap:14px;padding:12px 4px;border-bottom:1px solid #1A222B">
-            <div style="min-width:86px;font-size:11px;color:#566573;padding-top:2px">{date_s}</div>
-            <div style="width:9px;height:9px;border-radius:50%;background:{dot};margin-top:6px;flex-shrink:0"></div>
-            <div style="flex:1">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
-                    {badge(status)}
-                    <span style="font-size:10.5px;color:#566573">ثقة {conf:.0f}% · {rep}</span>
-                </div>
-                <div style="font-size:12.5px;color:#C6D0DA;line-height:1.7">{note}</div>
-            </div>
-        </div>"""
+        items += translated(''.join(['\n        <div style="display:flex;gap:14px;padding:12px 4px;border-bottom:1px solid #1A222B">\n            <div style="min-width:86px;font-size:11px;color:#566573;padding-top:2px">', f'{date_s}', '</div>\n            <div style="width:9px;height:9px;border-radius:50%;background:', f'{dot}', ';margin-top:6px;flex-shrink:0"></div>\n            <div style="flex:1">\n                <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">\n                    ', f'{badge(status)}', tr('\n                    <span style="font-size:10.5px;color:#566573">ثقة '), f'{conf:.0f}', '% · ', f'{rep}', '</span>\n                </div>\n                <div style="font-size:12.5px;color:#C6D0DA;line-height:1.7">', f'{note}', '</div>\n            </div>\n        </div>']))
     st.markdown(
-        f'<div class="section-card" style="max-height:500px;overflow-y:auto;direction:rtl">{items}</div>',
+        translated(''.join(['<div class="section-card" style="max-height:500px;overflow-y:auto;direction:rtl">', f'{items}', '</div>'])),
         unsafe_allow_html=True)
 
     # ── All visits (export) ──
@@ -2142,12 +2114,11 @@ elif page == "جودة البيانات والمحرك":
                 _xlsx_download(dup["exact_rows"].drop(columns=["_grp", "_keep", "_row"], errors="ignore"),
                                "⬇ تصدير الصفوف قبل الحذف", "Duplicate_Visits.xlsx", key="dl_dupes")
             with dc2:
-                if st.button(f"🗑 حذف التكرارات ({ds['exact_extra']} صفاً)",
+                if st.button(translated(''.join([tr('🗑 حذف التكرارات ('), f"{ds['exact_extra']}", tr(' صفاً)')])),
                              use_container_width=True, key="dup_del", type="primary"):
                     st.session_state["_dup_confirm"] = True
             if st.session_state.get("_dup_confirm"):
-                st.warning(f"⚠️ سيتم حذف **{ds['exact_extra']}** صفاً وإعادة بناء كل التحليلات. "
-                           "يمكن التراجع بعدها من زر الاسترجاع.")
+                st.warning(translated(''.join([tr('⚠️ سيتم حذف **'), f"{ds['exact_extra']}", tr('** صفاً وإعادة بناء كل التحليلات. يمكن التراجع بعدها من زر الاسترجاع.')])))
                 cc1, cc2 = st.columns(2)
                 with cc1:
                     if st.button("✅ تأكيد الحذف", use_container_width=True, key="dup_ok"):
@@ -2168,7 +2139,7 @@ elif page == "جودة البيانات والمحرك":
         _removed = load_removed_duplicates()
         if not _removed.empty:
             st.markdown("---")
-            st.info(f"↩️ يوجد **{len(_removed):,}** صف محذوف محفوظ — يمكن استرجاعه")
+            st.info(translated(''.join([tr('↩️ يوجد **'), f'{len(_removed):,}', tr('** صف محذوف محفوظ — يمكن استرجاعه')])))
             rc1, rc2 = st.columns([1, 1])
             with rc1:
                 _xlsx_download(_removed, "⬇ تحميل الصفوف المحذوفة", "Removed_Duplicates.xlsx", key="dl_removed")
@@ -2221,7 +2192,7 @@ elif page == "جودة البيانات والمحرك":
              "color": "#F08080" if dq["exact_dups"] else "#70AD47"},
         ], cols=5)
         if dq["no_rep"] > dq["total"] * 0.1:
-            st.warning(f"⚠️ **{dq['no_rep']:,}** زيارة ({dq['no_rep']/max(1,dq['total'])*100:.0f}%) بدون اسم مندوب — راجع ملف المصدر، هذه الزيارات لا تُحسب لأي مندوب في التقارير.")
+            st.warning(translated(''.join(['⚠️ **', f"{dq['no_rep']:,}", tr('** زيارة ('), f"{dq['no_rep'] / max(1, dq['total']) * 100:.0f}", tr('%) بدون اسم مندوب — راجع ملف المصدر، هذه الزيارات لا تُحسب لأي مندوب في التقارير.')])))
 
         # ── Engine accuracy vs manual ──
         section("🎯 دقة المحرك مقابل التصنيف اليدوي")
@@ -2239,12 +2210,12 @@ elif page == "جودة البيانات والمحرك":
                       help="زيارات لا تطابق أي قاعدة كلمات — لهذا صُنفت يدوياً. كلما أضفت قواعد جديدة انخفض هذا الرقم")
             a3.metric("التطابق حيث للمحرك رأي",
                       f"{agr['agreement']}%" if agr["agreement"] is not None else "—",
-                      help=f"مقارنة على {agr['n_opinion']} زيارة يستطيع المحرك تصنيفها")
+                      help=translated(''.join([tr('مقارنة على '), f"{agr['n_opinion']}", tr(' زيارة يستطيع المحرك تصنيفها')])))
             if not agr["confusion"].empty:
                 st.markdown("**مصفوفة المقارنة (صفوف: قرار الموظف — أعمدة: قرار المحرك)**")
                 st.dataframe(agr["confusion"], use_container_width=True)
             if not agr["samples"].empty:
-                with st.expander(f"أمثلة على الاختلاف ({len(agr['samples'])})"):
+                with st.expander(translated(''.join([tr('أمثلة على الاختلاف ('), f"{len(agr['samples'])}", ')']))):
                     st.dataframe(agr["samples"], use_container_width=True, height=320)
 
         # ── Rule suggestions from unclassified ──
@@ -2257,7 +2228,7 @@ elif page == "جودة البيانات والمحرك":
             chips = "".join(
                 f'<span class="wdi-chip">{_html.escape(str(r["العبارة"]))} <b>×{r["التكرار"]}</b></span>'
                 for _, r in phrases.iterrows())
-            st.markdown(f'<div class="section-card" style="direction:rtl">{chips}</div>',
+            st.markdown(translated(''.join(['<div class="section-card" style="direction:rtl">', f'{chips}', '</div>'])),
                         unsafe_allow_html=True)
 
         # ── Completeness detail grid (design) ──
@@ -2274,7 +2245,7 @@ elif page == "جودة البيانات والمحرك":
         _dcards = "".join(
             f'<div style="background:#10171D;border:1px solid #1D262F;border-radius:8px;'
             f'padding:11px 14px;display:flex;justify-content:space-between;align-items:center">'
-            f'<span style="font-size:12px;color:#8B98A5">{lbl}</span>'
+            f'<span style="font-size:12px;color:#8B98A5">{tr(lbl)}</span>'
             f'<span style="font-size:15px;font-weight:700;color:#E6EDF3">{val}</span></div>'
             for lbl, val in _details)
         st.markdown(f'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;direction:rtl">{_dcards}</div>',
@@ -2321,11 +2292,11 @@ elif page == "الإعدادات":
                 if p.exists() and p.is_dir():
                     test = p / ".test_access"
                     test.write_text("ok"); test.unlink()
-                    st.success(f"✅ الفولدر موجود وقابل للكتابة")
+                    st.success(translated(''.join([tr('✅ الفولدر موجود وقابل للكتابة')])))
                 else:
                     st.error("❌ الفولدر غير موجود")
             except Exception as e:
-                st.error(f"❌ لا يمكن الوصول: {e}")
+                st.error(translated(''.join([tr('❌ لا يمكن الوصول: '), f'{e}'])))
 
     # ── Storage Status ──
     section("📊 حالة التخزين")
@@ -2337,16 +2308,7 @@ elif page == "الإعدادات":
 
     meta = status["metadata"]
     if meta:
-        st.markdown(f"""
-        <div class="section-card">
-        <b>📋 آخر بيانات محفوظة</b><br><br>
-        📄 <b>الملف:</b> {meta.get('file_name','—')}<br>
-        🗒️ <b>الزيارات:</b> {fmt_number(meta.get('total_records',0))}<br>
-        👤 <b>العملاء:</b> {fmt_number(meta.get('unique_customers',0))}<br>
-        🧑‍💼 <b>المندوبون:</b> {fmt_number(meta.get('unique_reps',0))}<br>
-        ✏️ <b>تصنيفات يدوية:</b> {meta.get('override_count',0)}<br>
-        💾 <b>آخر حفظ:</b> {meta.get('last_saved','—')}
-        </div>""", unsafe_allow_html=True)
+        st.markdown(translated(''.join([tr('\n        <div class="section-card">\n        <b>📋 آخر بيانات محفوظة</b><br><br>\n        📄 <b>الملف:</b> '), f"{meta.get('file_name', '—')}", tr('<br>\n        🗒️ <b>الزيارات:</b> '), f"{fmt_number(meta.get('total_records', 0))}", tr('<br>\n        👤 <b>العملاء:</b> '), f"{fmt_number(meta.get('unique_customers', 0))}", tr('<br>\n        🧑\u200d💼 <b>المندوبون:</b> '), f"{fmt_number(meta.get('unique_reps', 0))}", tr('<br>\n        ✏️ <b>تصنيفات يدوية:</b> '), f"{meta.get('override_count', 0)}", tr('<br>\n        💾 <b>آخر حفظ:</b> '), f"{meta.get('last_saved', '—')}", '\n        </div>'])), unsafe_allow_html=True)
 
     # ── Manual Save ──
     section("💾 حفظ يدوي")
@@ -2379,7 +2341,7 @@ elif page == "الإعدادات":
                 st.success("✅ تم تحميل البيانات بنجاح!")
                 st.rerun()
             else:
-                st.error(f"❌ فشل التحميل: {data.get('error','خطأ غير معروف')}")
+                st.error(translated(''.join([tr('❌ فشل التحميل: '), f"{data.get('error', 'خطأ غير معروف')}"])))
     else:
         st.info("لا توجد بيانات محفوظة بعد")
 

@@ -1,3 +1,4 @@
+from localization import tr, language, display_value, translate_message
 # rep_report.py
 # WDI Visit Analytics Engine
 # تقرير المندوب التفصيلي — ملف Excel من 9 شيتات برسوم Excel أصلية.
@@ -24,7 +25,7 @@ def _block(ws, title: str, df: pd.DataFrame, row: int, color: str = PRIMARY,
     """اكتب عنواناً ثم جدولاً، وأعد رقم أول صف فارغ بعده."""
     ncols = max(1, len(df.columns) if df is not None and not df.empty else 1)
     if title:
-        cell = ws.cell(row=row, column=1, value=title)
+        cell = ws.cell(row=row, column=1, value=tr(title))
         cell.font = Font(bold=True, color=HEADER_FG, name="Calibri", size=12)
         cell.fill = _header_fill(color)
         cell.alignment = _right_align()
@@ -32,22 +33,22 @@ def _block(ws, title: str, df: pd.DataFrame, row: int, color: str = PRIMARY,
         ws.row_dimensions[row].height = 22
         row += 1
     if note:
-        c = ws.cell(row=row, column=1, value=note)
+        c = ws.cell(row=row, column=1, value=tr(note))
         c.font = Font(italic=True, size=9, color="666666")
         row += 1
     if df is None or df.empty:
-        ws.cell(row=row, column=1, value="لا توجد بيانات").font = _normal_font()
+        ws.cell(row=row, column=1, value=tr("لا توجد بيانات")).font = _normal_font()
         return row + 2
 
     for j, col in enumerate(df.columns, start=1):
-        c = ws.cell(row=row, column=j, value=str(col))
+        c = ws.cell(row=row, column=j, value=tr(str(col)))
         c.fill, c.font, c.border, c.alignment = _header_fill(color), _header_font(), _border(), _center()
     for i, rec in enumerate(df.itertuples(index=False), start=1):
         fill = _alt_fill() if i % 2 == 0 else PatternFill()
         for j, val in enumerate(rec, start=1):
             if val is None or (isinstance(val, float) and pd.isna(val)):
                 val = ""
-            c = ws.cell(row=row + i, column=j, value=val)
+            c = ws.cell(row=row + i, column=j, value=display_value(df.columns[j - 1], val))
             c.fill, c.border, c.font = fill, _border(), _normal_font()
             c.alignment = _right_align() if _is_arabic_col(df.columns[j - 1]) else _center()
     return row + len(df) + 2
@@ -61,7 +62,7 @@ def _chart(ws, kind: str, title: str, anchor: str, header_row: int, last_row: in
     ch = {"bar": BarChart, "line": LineChart, "pie": PieChart}[kind]()
     if kind == "bar":
         ch.type = "col"
-    ch.title = title
+    ch.title = tr(title)
     ch.height, ch.width = height, width
     ch.add_data(Reference(ws, min_col=value_col, min_row=header_row, max_row=last_row),
                 titles_from_data=True)
@@ -73,8 +74,8 @@ def _chart(ws, kind: str, title: str, anchor: str, header_row: int, last_row: in
 
 def _sheet(wb, name: str, first: bool = False):
     ws = wb.active if first else wb.create_sheet(name)
-    ws.title = name
-    ws.sheet_view.rightToLeft = True
+    ws.title = tr(name)
+    ws.sheet_view.rightToLeft = language() == "ar"
     return ws
 
 
@@ -86,7 +87,7 @@ def export_rep_report(d: dict) -> bytes:
     # ── 1) الملخص ──
     ws = _sheet(wb, "الملخص", first=True)
     ws.merge_cells("A1:E1")
-    t = ws.cell(row=1, column=1, value=f"تقرير أداء المندوب — {h['rep']}")
+    t = ws.cell(row=1, column=1, value=f"{tr('تقرير أداء المندوب')} — {h['rep']}")
     t.font = Font(bold=True, color=HEADER_FG, name="Calibri", size=15)
     t.fill = _header_fill(PRIMARY)
     t.alignment = _center()
@@ -96,8 +97,8 @@ def export_rep_report(d: dict) -> bytes:
                                 ("محافظات زيارات الفترة", h.get("governorates_period", "—")),
                                 ("مقارنة مع", h["prev_label"]),
                                 ("تاريخ الإصدار", h["generated"])], start=2):
-        ws.cell(row=i, column=1, value=k).font = Font(bold=True, size=10)
-        ws.cell(row=i, column=2, value=v).font = _normal_font()
+        ws.cell(row=i, column=1, value=tr(k)).font = Font(bold=True, size=10)
+        ws.cell(row=i, column=2, value=translate_message(v) if k in ("الفترة", "مقارنة مع") else v).font = _normal_font()
 
     r = _block(ws, "المؤشرات مقارنةً بالفترة السابقة وبمتوسط الفريق", d["kpis"], 8)
     r = _block(ws, "نسب الأداء", d["ratios"], r, SECONDARY)

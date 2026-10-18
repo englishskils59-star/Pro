@@ -1,0 +1,10 @@
+<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><style>
+body{margin:0;background:transparent;color:#E6EDF3;font:13px 'Segoe UI',sans-serif}nav{direction:ltr;display:flex;align-items:center;justify-content:center;gap:10px;padding:5px}button{font:inherit;color:#8B98A5;background:none;border:0;cursor:pointer;padding:5px 10px;border-radius:6px}button[aria-pressed=true]{color:#2DD4BF;background:#10171D;font-weight:700}button:focus-visible{outline:2px solid #2DD4BF}
+</style><nav aria-label="العربية | English"><button data-lang="ar">العربية</button><span>|</span><button data-lang="en">English</button></nav><script>
+const KEY='wdi.interface.language'; let lang='ar', ready=false;
+function send(type,extra={}){parent.postMessage({isStreamlitMessage:true,type,...extra},'*')}
+function show(){document.documentElement.lang=lang;document.documentElement.dir=lang==='ar'?'rtl':'ltr';document.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.lang===lang)))}
+window.addEventListener('message',e=>{if(e.data.type!=='streamlit:render')return;send('streamlit:setFrameHeight',{height:43});if(!ready){try{lang=localStorage.getItem(KEY)==='en'?'en':'ar'}catch{}ready=true;show();send('streamlit:setComponentValue',{value:lang,dataType:'json'})}else{show()}});
+document.querySelectorAll('button').forEach(b=>b.onclick=()=>{lang=b.dataset.lang;try{localStorage.setItem(KEY,lang)}catch{}show();send('streamlit:setComponentValue',{value:lang,dataType:'json'})});
+send('streamlit:componentReady',{apiVersion:1});send('streamlit:setFrameHeight',{height:43});
+</script></html>

@@ -1,3 +1,4 @@
+from localization import tr, language, display_value
 # export_manager.py
 # WDI Visit Analytics Engine
 # Generates styled Excel workbooks for export.
@@ -74,7 +75,7 @@ def _write_df_to_sheet(ws, df: pd.DataFrame, header_color: str = PRIMARY, start_
     """Write a DataFrame to an openpyxl worksheet with styling."""
     # Write header
     for col_idx, col_name in enumerate(df.columns, start=1):
-        cell = ws.cell(row=start_row, column=col_idx, value=str(col_name))
+        cell = ws.cell(row=start_row, column=col_idx, value=tr(str(col_name)))
         cell.fill   = _header_fill(header_color)
         cell.font   = _header_font()
         cell.border = _border()
@@ -84,7 +85,7 @@ def _write_df_to_sheet(ws, df: pd.DataFrame, header_color: str = PRIMARY, start_
     for row_idx, row in enumerate(df.itertuples(index=False), start=start_row + 1):
         fill = _alt_fill() if (row_idx - start_row) % 2 == 0 else PatternFill()
         for col_idx, value in enumerate(row, start=1):
-            cell = ws.cell(row=row_idx, column=col_idx, value=value)
+            cell = ws.cell(row=row_idx, column=col_idx, value=display_value(df.columns[col_idx - 1], value))
             cell.fill      = fill
             cell.border    = _border()
             cell.font      = _normal_font()
@@ -107,7 +108,7 @@ def _add_title_row(ws, title: str, num_cols: int, color: str = PRIMARY):
     """Merge first row as a report title."""
     ws.insert_rows(1)
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=num_cols)
-    cell = ws.cell(row=1, column=1, value=title)
+    cell = ws.cell(row=1, column=1, value=tr(title))
     cell.fill      = _header_fill(color)
     cell.font      = Font(bold=True, color=HEADER_FG, name="Calibri", size=13)
     cell.alignment = _center()
@@ -157,7 +158,7 @@ def export_customer_summary(journey_df: pd.DataFrame) -> bytes:
     ws.title = "Customer Summary"
     _write_df_to_sheet(ws, df, header_color=PRIMARY)
     _add_title_row(ws, f"WDI — Customer Summary  |  Generated: {_timestamp()}", len(df.columns))
-    ws.sheet_view.rightToLeft = True  # RTL for Arabic
+    ws.sheet_view.rightToLeft = language() == "ar"  # RTL for Arabic
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -256,7 +257,7 @@ def export_classification_results(classified_df: pd.DataFrame) -> bytes:
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Classification Results"
-    ws.sheet_view.rightToLeft = True
+    ws.sheet_view.rightToLeft = language() == "ar"
 
     _write_df_to_sheet(ws, df, header_color=PRIMARY)
     _add_title_row(ws, f"WDI — Classification Results  |  {_timestamp()}", len(df.columns))
@@ -279,20 +280,20 @@ def export_monthly_report(comparison: dict, sheets: dict) -> bytes:
 
     # ── Sheet 1: month-over-month comparison ──
     ws = wb.active
-    ws.title = "مقارنة شهرية"
-    ws.sheet_view.rightToLeft = True
+    ws.title = tr("مقارنة شهرية")
+    ws.sheet_view.rightToLeft = language() == "ar"
     rows = []
     for label, cur, prev in comparison.get("metrics", []):
         change = ((cur - prev) / prev * 100) if prev else None
         rows.append({
-            "المؤشر": label,
-            f"الشهر الحالي ({comparison.get('cur_label','')})": cur,
-            f"الشهر السابق ({comparison.get('prev_label','')})": prev,
+            "المؤشر": tr(label),
+            f"{tr('الشهر الحالي')} ({comparison.get('cur_label','')})": cur,
+            f"{tr('الشهر السابق')} ({comparison.get('prev_label','')})": prev,
             "التغير %": f"{change:+.1f}%" if change is not None else "—",
         })
     cmp_df = pd.DataFrame(rows) if rows else pd.DataFrame({"المؤشر": ["لا توجد بيانات"]})
     _write_df_to_sheet(ws, cmp_df, header_color=PRIMARY)
-    _add_title_row(ws, f"WDI — التقرير الشهري الشامل  |  {_timestamp()}", len(cmp_df.columns))
+    _add_title_row(ws, f"WDI — {tr('التقرير الشهري الشامل')}  |  {_timestamp()}", len(cmp_df.columns))
 
     # ── Remaining sheets ──
     colors = [SECONDARY, ACCENT, PRIMARY, "C00000", SECONDARY, ACCENT, PRIMARY]
@@ -304,8 +305,8 @@ def export_monthly_report(comparison: dict, sheets: dict) -> bytes:
         for col in df_out.columns:
             if pd.api.types.is_datetime64_any_dtype(df_out[col]):
                 df_out[col] = df_out[col].dt.strftime("%Y-%m-%d")
-        ws_i = wb.create_sheet(str(name)[:31])
-        ws_i.sheet_view.rightToLeft = True
+        ws_i = wb.create_sheet(tr(str(name))[:31])
+        ws_i.sheet_view.rightToLeft = language() == "ar"
         _write_df_to_sheet(ws_i, df_out.reset_index(drop=False)
                            if df_out.index.name else df_out,
                            header_color=colors[i % len(colors)])
@@ -336,7 +337,7 @@ def export_followup_customers(journey_df: pd.DataFrame, days_threshold: int = 30
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = f"No Visit {days_threshold}+ Days"
-    ws.sheet_view.rightToLeft = True
+    ws.sheet_view.rightToLeft = language() == "ar"
     _write_df_to_sheet(ws, df, header_color="C00000")
     _add_title_row(
         ws,

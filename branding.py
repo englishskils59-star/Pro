@@ -4,6 +4,7 @@
 
 from pathlib import Path
 import streamlit as st
+from localization import tr
 
 TEAL = "#2DD4BF"
 BLUE = "#4C9AFF"
@@ -112,7 +113,7 @@ def splash_card(subtitle: str = "ارفع ملف Excel لتصنيف الزيار
         f'animation:wdiGlow 4.2s ease-in-out infinite">{mark_svg_animated(46, stroke=6.5)}</div>'
         f'<div style="font-size:18px;font-weight:700;color:{TEXT}">WDI Visit Analytics Engine</div>'
         f'<div style="font-size:12.5px;color:#8B98A5;max-width:460px;margin:8px auto 0;line-height:1.9">'
-        f'{subtitle}</div></div>', unsafe_allow_html=True)
+        f'{tr(subtitle)}</div></div>', unsafe_allow_html=True)
 
 
 def loading_logo(text: str = "جاري تحليل الزيارات…") -> None:
@@ -120,4 +121,4 @@ def loading_logo(text: str = "جاري تحليل الزيارات…") -> None:
     st.markdown(
         f'<div style="display:flex;align-items:center;gap:12px;justify-content:center;padding:22px">'
         f'{mark_svg_animated(40, stroke=6.5)}'
-        f'<span style="font-size:13px;color:#8B98A5">{text}</span></div>', unsafe_allow_html=True)
+        f'<span style="font-size:13px;color:#8B98A5">{tr(text)}</span></div>', unsafe_allow_html=True)
