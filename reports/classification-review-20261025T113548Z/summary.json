@@ -1,0 +1,54 @@
+{
+  "source": "D:\\Pro\\data\\classified_data.parquet",
+  "rows": 13503,
+  "unique_normalized_notes": 8866,
+  "custom_rules": 0,
+  "persisted_override_rows": 2603,
+  "persisted_override_columns": [
+    "Key",
+    "Customer Name",
+    "Visit Date",
+    "Sales Rep Name",
+    "Manual Status"
+  ],
+  "manual_overrides_applied_in_memory": 2603,
+  "rules_status_changed": 4645,
+  "stored_vs_effective_status_changed": 4645,
+  "stored_status_without_keyword_and_unclassified_reason": 2601,
+  "of_these_manual_marker": 2601,
+  "stored_current_followup_only": 1851,
+  "stored_no_meeting": 215,
+  "stored_confidence_100": 2603,
+  "stored_100_manual": 2603,
+  "old_seconds": [
+    3.5559597999999824,
+    4.028411200000846,
+    3.533675000002404
+  ],
+  "new_cold_seconds": [
+    2.6722383000014815,
+    3.0446478000012576,
+    2.938303899998573
+  ],
+  "new_warm_seconds": 0.784922099999676,
+  "median_speedup": 1.2102083109925115,
+  "runtime": {
+    "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+    "pandas": "2.3.2",
+    "platform": "Windows-10-10.0.19045-SP0"
+  },
+  "input_and_data_hashes_unchanged": true,
+  "historical_results_xlsx_found": false,
+  "historical_audit_xlsx_found": false,
+  "accuracy": null,
+  "accuracy_reason": "No independently verified labeled evaluation corpus; changes are not correctness estimates",
+  "engine_version": "context-rules-1",
+  "definitions_version": "existing-statuses-1",
+  "all_saved_manual_statuses_preserved": true,
+  "stored_vs_old_rules_status_differences": 2603,
+  "old_vs_new_dtype_contract": {
+    "confidence": "float",
+    "raw_score": "int",
+    "statuses_and_reasons": "object"
+  }
+}

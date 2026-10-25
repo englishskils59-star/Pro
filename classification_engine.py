@@ -480,201 +480,98 @@ NON_STATUS = {"No Meeting", "Unclassified"}
 
 
 def _prepare_rules(rules: list[dict]) -> list[dict]:
-    """
-    Normalize keywords and remove duplicates.
-
-    - Scores are stored as positive magnitudes: the winner is always the
-      status with the highest total, so 'not_interested' competes fairly
-      instead of always losing with a negative score.
-    - If the same normalized keyword appears twice with the same status,
-      only the highest score is kept (no double counting).
-    - If it appears under two different statuses (e.g. "أول زيارة" as both
-      new and target), the status earlier in STATUS_PRIORITY wins.
-    """
-    best: dict[str, dict] = {}
-    for r in rules:
-        norm = normalize_arabic(r["keyword"])
-        if not norm:
+    """Deduplicate equal phrase/status pairs; retain conflicting labels for review."""
+    from classification_context import normalize_note
+    best = {}
+    for rule in rules:
+        norm = normalize_note(rule.get("keyword"))
+        status = rule.get("status")
+        if not norm or status not in STATUS_DISPLAY:
             continue
-        cand = {"keyword": r["keyword"], "status": r["status"],
-                "score": abs(r["score"]), "_norm": norm}
-        cur = best.get(norm)
-        if cur is None:
-            best[norm] = cand
-        elif cand["status"] == cur["status"]:
-            if cand["score"] > cur["score"]:
-                best[norm] = cand
-        elif STATUS_PRIORITY.index(cand["status"]) < STATUS_PRIORITY.index(cur["status"]):
-            best[norm] = cand
+        # A first visit is not a first commercial transaction.
+        if norm == normalize_note("أول زيارة"):
+            status = "target"
+        score = abs(float(rule.get("score", 0)))
+        if not np.isfinite(score) or score <= 0:
+            continue
+        key = (norm,status)
+        cand = {"keyword":rule["keyword"],"status":status,"score":score,"_norm":norm}
+        if key not in best or score > best[key]["score"]:
+            best[key] = cand
     return list(best.values())
 
 
-# Base rules are fixed in code; custom rules (from the UI) are merged on top.
-_BASE_RULES = _prepare_rules(KEYWORD_RULES)
-ACTIVE_RULES: list[dict] = _BASE_RULES
+from classification_context import CONTEXT_RULES, cached_decide, normalize_note, manual_result
+_BASE_RULES = _prepare_rules(KEYWORD_RULES + CONTEXT_RULES)
+ACTIVE_RULES = _BASE_RULES
+_RULE_SIGNATURE = tuple((r["_norm"],r["keyword"],r["status"],r["score"]) for r in ACTIVE_RULES)
 
 
 def set_custom_rules(custom_rules: list[dict]):
-    """Merge user-defined rules (from Settings/Rules tab) over the base rules."""
-    global ACTIVE_RULES
-    custom_rules = custom_rules or []
-    ACTIVE_RULES = _prepare_rules(KEYWORD_RULES + list(custom_rules))
+    """Publish an immutable rules snapshot; caches are keyed by its full content."""
+    global ACTIVE_RULES, _RULE_SIGNATURE
+    rules = _prepare_rules(KEYWORD_RULES + CONTEXT_RULES + list(custom_rules or []))
+    signature = tuple((r["_norm"],r["keyword"],r["status"],r["score"]) for r in rules)
+    ACTIVE_RULES = rules
+    _RULE_SIGNATURE = signature
 
-
-# ═══════════════════════════════════════════════════════════════════
-# SINGLE-NOTE CLASSIFIER
-# ═══════════════════════════════════════════════════════════════════
 
 def classify_note(note: str, is_first_appearance: bool = False) -> dict:
+    """Offline evidence index (not a calibrated probability).
+
+    is_first_appearance is retained for call compatibility, but cannot establish
+    a commercial first transaction. No future/history/name inference is used.
     """
-    Classify a single visit note using keyword scoring.
+    suggested, confidence, score, keywords, reason = cached_decide(normalize_note(note), _RULE_SIGNATURE)
+    return {"suggested_status":suggested,"display_status":STATUS_DISPLAY[suggested],
+            "confidence":confidence,"score":score,"matched_keywords":list(keywords),"reason":reason}
 
-    Returns:
-        {
-            "suggested_status": str,   # internal key
-            "display_status":   str,   # human-readable label
-            "confidence":       float, # 0–100
-            "score":            int,   # raw total score
-            "matched_keywords": list[str],
-            "reason":           str,
-        }
+
+def classify_dataframe(df: pd.DataFrame, *, preserve_manual: bool = False) -> pd.DataFrame:
+    """Keep the existing output schema and original fields.
+
+    Default is rules-only, as in the original upload/reclassify call chain; the
+    existing caller then reapplies persisted overrides (the source of truth).
+    Explicit preserve_manual=True supports standalone approved in-memory data.
+    This avoids resurrecting deleted overrides from stale Manual markers.
+
+    Sort chronologically using a temporary parsed key without changing the
+    original Visit Date column; invalid dates sort last. One immutable rule
+    snapshot is used for the whole batch. Identical normalized notes share work.
     """
-    norm_note = normalize_arabic(safe_str(note))
-
-    # Find each rule's first occurrence with its position, so a keyword that
-    # is swallowed by a longer matched keyword can be suppressed —
-    # e.g. "مهتم" inside "غير مهتم" or "يرغب" inside "لا يرغب".
-    hits: list[tuple[int, int, dict]] = []
-    for rule in ACTIVE_RULES:
-        pos = norm_note.find(rule["_norm"])
-        if pos != -1:
-            hits.append((pos, pos + len(rule["_norm"]), rule))
-
-    kept_rules: list[dict] = []
-    for i, (s1, e1, r1) in enumerate(hits):
-        swallowed = any(
-            s2 <= s1 and e1 <= e2 and (e2 - s2) > (e1 - s1)
-            for j, (s2, e2, _r2) in enumerate(hits) if j != i
-        )
-        if not swallowed:
-            kept_rules.append(r1)
-
-    # Accumulate scores per status
-    score_map: dict[str, int] = {}
-    matched: list[str] = []
-    for rule in kept_rules:
-        status = rule["status"]
-        score_map[status] = score_map.get(status, 0) + rule["score"]
-        matched.append(rule["keyword"])
-
-    # First-appearance bonus for "new"
-    if is_first_appearance:
-        score_map["new"] = score_map.get("new", 0) + 80
-        if "أول زيارة" not in matched:
-            matched.append("(first appearance in database)")
-
-    # Determine winner
-    if not score_map:
-        suggested = "unclassified"
-        total_score = 0
-    else:
-        # Sort by score descending, then by priority for ties
-        sorted_statuses = sorted(
-            score_map.keys(),
-            key=lambda s: (-score_map[s], STATUS_PRIORITY.index(s) if s in STATUS_PRIORITY else 99),
-        )
-        suggested = sorted_statuses[0]
-        total_score = score_map[suggested]
-
-    # Confidence: winner's score capped at 100, discounted by how strongly
-    # a competing status also matched (mixed signals → lower confidence).
-    if total_score <= 0:
-        confidence = 0.0
-    else:
-        base = float(min(100, total_score))
-        if len(sorted_statuses) > 1:
-            runner_up = score_map[sorted_statuses[1]]
-            if runner_up > 0:
-                base = base * total_score / (total_score + runner_up)
-        confidence = min(99.0, round(base, 1))
-
-    # Build reason string
-    if matched:
-        kw_list = "، ".join(matched)
-        reason = f"تطابق الكلمات المفتاحية: {kw_list}"
-    elif is_first_appearance:
-        reason = "أول ظهور للعميل في قاعدة البيانات"
-    else:
-        reason = "لا توجد كلمات مفتاحية — غير مصنف"
-
-    return {
-        "suggested_status": suggested,
-        "display_status":   STATUS_DISPLAY.get(suggested, suggested),
-        "confidence":       confidence,
-        "score":            total_score,
-        "matched_keywords": matched,
-        "reason":           reason,
-    }
-
-
-# ═══════════════════════════════════════════════════════════════════
-# BATCH CLASSIFIER  (full DataFrame)
-# ═══════════════════════════════════════════════════════════════════
-
-def classify_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Classify every row in the DataFrame.
-
-    Adds columns:
-        Suggested Status, Display Status, Confidence Score,
-        Raw Score, Matched Keywords, Classification Reason
-
-    Also tracks customer journey (first appearance rule).
-    Optimized for 50,000+ rows.
-    """
+    from classification_context import text_value
     df = df.copy()
-    df = df.sort_values("Visit Date", ascending=True).reset_index(drop=True)
-
-    # Track which customer names have been seen (for first-appearance rule)
-    seen_customers: set[str] = set()
-
-    suggested_statuses = []
-    display_statuses   = []
-    confidences        = []
-    raw_scores         = []
-    matched_keywords   = []
-    reasons            = []
-
-    notes_col    = df["Visit Notes"].tolist()    if "Visit Notes"    in df.columns else [""] * len(df)
-    customer_col = df["Customer Name"].tolist()  if "Customer Name"  in df.columns else [""] * len(df)
-
-    new_hint_norms = [normalize_arabic(kw) for kw in ["أول زيارة", "تعارف", "عميل جديد"]]
-
-    for i in range(len(df)):
-        note     = safe_str(notes_col[i])
-        customer = safe_str(customer_col[i]).strip()
-
-        norm_note = normalize_arabic(note)
-        has_new_keyword = any(kw in norm_note for kw in new_hint_norms)
-        is_first = bool(customer) and customer not in seen_customers
-        if customer:
-            seen_customers.add(customer)
-        result = classify_note(note, is_first_appearance=is_first and has_new_keyword)
-
-        suggested_statuses.append(result["suggested_status"])
-        display_statuses.append(result["display_status"])
-        confidences.append(result["confidence"])
-        raw_scores.append(result["score"])
-        matched_keywords.append(", ".join(result["matched_keywords"]))
-        reasons.append(result["reason"])
-
-    df["Suggested Status"]      = suggested_statuses
-    df["Display Status"]        = display_statuses
-    df["Confidence Score"]      = confidences
-    df["Raw Score"]             = raw_scores
-    df["Matched Keywords"]      = matched_keywords
-    df["Classification Reason"] = reasons
-
+    if "Visit Date" in df:
+        dates = pd.to_datetime(df["Visit Date"],errors="coerce",format="mixed",utc=True)
+        # Position-based order also supports duplicate source index values.
+        positions = pd.Series(range(len(df)),index=range(len(df)))
+        positions = positions.iloc[pd.Series(dates.to_numpy()).sort_values(kind="stable",na_position="last").index]
+        df = df.iloc[positions.to_numpy()].reset_index(drop=True)
+    else:
+        df = df.reset_index(drop=True)
+    signature = _RULE_SIGNATURE
+    notes = df["Visit Notes"].tolist() if "Visit Notes" in df else [""] * len(df)
+    displays = df["Display Status"].tolist() if "Display Status" in df else [""]*len(df)
+    sources = df["Override Source"].tolist() if "Override Source" in df else [""]*len(df)
+    if not preserve_manual and "Override Source" in df:
+        df.loc[df["Override Source"].eq("Manual"), "Override Source"] = "Rules"
+    results = []
+    local = {}
+    for note,display,source in zip(notes,displays,sources):
+        if preserve_manual and text_value(source) == "Manual" and text_value(display) in STATUS_DISPLAY.values():
+            results.append(manual_result(text_value(display),STATUS_DISPLAY));continue
+        norm = normalize_note(note)
+        if norm not in local:
+            suggested,confidence,score,keywords,reason = cached_decide(norm,signature)
+            local[norm] = {"suggested_status":suggested,"display_status":STATUS_DISPLAY[suggested],
+                           "confidence":confidence,"score":score,"matched_keywords":keywords,"reason":reason}
+        results.append(local[norm])
+    for column,key in [("Suggested Status","suggested_status"),("Display Status","display_status"),
+                       ("Confidence Score","confidence"),("Raw Score","score"),
+                       ("Matched Keywords","matched_keywords"),("Classification Reason","reason")]:
+        values = [", ".join(r[key]) if key == "matched_keywords" else r[key] for r in results]
+        dtype = float if key == "confidence" else (int if key == "score" else object)
+        df[column] = pd.Series(values,dtype=dtype)
     return df
 
 

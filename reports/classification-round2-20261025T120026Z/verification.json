@@ -1,0 +1,27 @@
+{
+  "human_review_250_final.xlsx": [
+    {
+      "sheet": "مراجعة بشرية",
+      "nonempty_rows": 251
+    },
+    {
+      "sheet": "طريقة الاختيار",
+      "nonempty_rows": 14
+    }
+  ],
+  "comparison_round2_final.xlsx": [
+    {
+      "sheet": "انتقالات الحالات",
+      "nonempty_rows": 29
+    },
+    {
+      "sheet": "مقارنة كل الزيارات",
+      "nonempty_rows": 13504
+    }
+  ],
+  "human_review_features": {
+    "freeze": "C2",
+    "validation_count": 1,
+    "table_count": 1
+  }
+}

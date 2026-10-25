@@ -1,0 +1,172 @@
+test_absence (test_classification_behavior.ClassificationBehaviorTests.test_absence) ... ok
+test_batch_contract_invalid_dates_identity (test_classification_behavior.ClassificationBehaviorTests.test_batch_contract_invalid_dates_identity) ... ok
+test_boundaries (test_classification_behavior.ClassificationBehaviorTests.test_boundaries) ... FAIL
+test_conflict_abstains (test_classification_behavior.ClassificationBehaviorTests.test_conflict_abstains) ... FAIL
+test_custom_duplicates_and_overlap (test_classification_behavior.ClassificationBehaviorTests.test_custom_duplicates_and_overlap) ... FAIL
+test_empty_missing (test_classification_behavior.ClassificationBehaviorTests.test_empty_missing) ... ok
+test_first_visit_not_first_deal (test_classification_behavior.ClassificationBehaviorTests.test_first_visit_not_first_deal) ... FAIL
+test_followup_is_insufficient (test_classification_behavior.ClassificationBehaviorTests.test_followup_is_insufficient) ... FAIL
+test_former (test_classification_behavior.ClassificationBehaviorTests.test_former) ... ok
+test_future_not_completed (test_classification_behavior.ClassificationBehaviorTests.test_future_not_completed) ... 
+  test_future_not_completed (test_classification_behavior.ClassificationBehaviorTests.test_future_not_completed) (s='سيتم الطلب') ... FAIL
+  test_future_not_completed (test_classification_behavior.ClassificationBehaviorTests.test_future_not_completed) (s='سيتم تحميل بضاعة') ... FAIL
+  test_future_not_completed (test_classification_behavior.ClassificationBehaviorTests.test_future_not_completed) (s='هيطلب') ... FAIL
+  test_future_not_completed (test_classification_behavior.ClassificationBehaviorTests.test_future_not_completed) (s='سوف يتم الطلب') ... FAIL
+  test_future_not_completed (test_classification_behavior.ClassificationBehaviorTests.test_future_not_completed) (s='تم الاتفاق على طلبية') ... FAIL
+test_generic_purchase_abstains (test_classification_behavior.ClassificationBehaviorTests.test_generic_purchase_abstains) ... FAIL
+test_interest_and_refusal (test_classification_behavior.ClassificationBehaviorTests.test_interest_and_refusal) ... ok
+test_manual_retained (test_classification_behavior.ClassificationBehaviorTests.test_manual_retained) ... FAIL
+test_negated_order (test_classification_behavior.ClassificationBehaviorTests.test_negated_order) ... FAIL
+test_negation_scope (test_classification_behavior.ClassificationBehaviorTests.test_negation_scope) ... ok
+test_no_future_leakage (test_classification_behavior.ClassificationBehaviorTests.test_no_future_leakage) ... ok
+test_reason_is_evidence_index (test_classification_behavior.ClassificationBehaviorTests.test_reason_is_evidence_index) ... FAIL
+test_repeated_evidence (test_classification_behavior.ClassificationBehaviorTests.test_repeated_evidence) ... ok
+test_spelling_and_spacing (test_classification_behavior.ClassificationBehaviorTests.test_spelling_and_spacing) ... ok
+test_supplier (test_classification_behavior.ClassificationBehaviorTests.test_supplier) ... FAIL
+
+======================================================================
+FAIL: test_boundaries (test_classification_behavior.ClassificationBehaviorTests.test_boundaries)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\All pro\Wadi project\Wadi Visit\tests\test_classification_behavior.py", line 34, in test_boundaries
+    self.assertNotEqual(self.status('اندفع العميل'),'current')
+AssertionError: 'current' == 'current'
+
+======================================================================
+FAIL: test_conflict_abstains (test_classification_behavior.ClassificationBehaviorTests.test_conflict_abstains)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\All pro\Wadi project\Wadi Visit\tests\test_classification_behavior.py", line 28, in test_conflict_abstains
+    self.assertEqual(self.status('رفض التعامل، لكنه مهتم بالتجربة'),'unclassified')
+AssertionError: 'potential' != 'unclassified'
+- potential
++ unclassified
+
+
+======================================================================
+FAIL: test_custom_duplicates_and_overlap (test_classification_behavior.ClassificationBehaviorTests.test_custom_duplicates_and_overlap)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\All pro\Wadi project\Wadi Visit\tests\test_classification_behavior.py", line 42, in test_custom_duplicates_and_overlap
+    self.assertEqual(self.status('غير مهتم لكنه مهتم'),'unclassified')
+AssertionError: 'not_interested' != 'unclassified'
+- not_interested
++ unclassified
+
+
+======================================================================
+FAIL: test_first_visit_not_first_deal (test_classification_behavior.ClassificationBehaviorTests.test_first_visit_not_first_deal)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\All pro\Wadi project\Wadi Visit\tests\test_classification_behavior.py", line 26, in test_first_visit_not_first_deal
+    self.assertNotEqual(e.classify_note('أول زيارة للتعارف',True)['suggested_status'],'new')
+AssertionError: 'new' == 'new'
+
+======================================================================
+FAIL: test_followup_is_insufficient (test_classification_behavior.ClassificationBehaviorTests.test_followup_is_insufficient)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\All pro\Wadi project\Wadi Visit\tests\test_classification_behavior.py", line 22, in test_followup_is_insufficient
+    self.assertEqual(self.status('متابعة العميل'),'unclassified')
+AssertionError: 'current' != 'unclassified'
+- current
++ unclassified
+
+
+======================================================================
+FAIL: test_future_not_completed (test_classification_behavior.ClassificationBehaviorTests.test_future_not_completed) (s='سيتم الطلب')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\All pro\Wadi project\Wadi Visit\tests\test_classification_behavior.py", line 16, in test_future_not_completed
+    with self.subTest(s=s): self.assertNotEqual(self.status(s),'current')
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'current' == 'current'
+
+======================================================================
+FAIL: test_future_not_completed (test_classification_behavior.ClassificationBehaviorTests.test_future_not_completed) (s='سيتم تحميل بضاعة')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\All pro\Wadi project\Wadi Visit\tests\test_classification_behavior.py", line 16, in test_future_not_completed
+    with self.subTest(s=s): self.assertNotEqual(self.status(s),'current')
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'current' == 'current'
+
+======================================================================
+FAIL: test_future_not_completed (test_classification_behavior.ClassificationBehaviorTests.test_future_not_completed) (s='هيطلب')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\All pro\Wadi project\Wadi Visit\tests\test_classification_behavior.py", line 16, in test_future_not_completed
+    with self.subTest(s=s): self.assertNotEqual(self.status(s),'current')
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'current' == 'current'
+
+======================================================================
+FAIL: test_future_not_completed (test_classification_behavior.ClassificationBehaviorTests.test_future_not_completed) (s='سوف يتم الطلب')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\All pro\Wadi project\Wadi Visit\tests\test_classification_behavior.py", line 16, in test_future_not_completed
+    with self.subTest(s=s): self.assertNotEqual(self.status(s),'current')
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'current' == 'current'
+
+======================================================================
+FAIL: test_future_not_completed (test_classification_behavior.ClassificationBehaviorTests.test_future_not_completed) (s='تم الاتفاق على طلبية')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\All pro\Wadi project\Wadi Visit\tests\test_classification_behavior.py", line 16, in test_future_not_completed
+    with self.subTest(s=s): self.assertNotEqual(self.status(s),'current')
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'current' == 'current'
+
+======================================================================
+FAIL: test_generic_purchase_abstains (test_classification_behavior.ClassificationBehaviorTests.test_generic_purchase_abstains)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\All pro\Wadi project\Wadi Visit\tests\test_classification_behavior.py", line 67, in test_generic_purchase_abstains
+    def test_generic_purchase_abstains(self): self.assertEqual(self.status('شراء'),'unclassified')
+                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'current' != 'unclassified'
+- current
++ unclassified
+
+
+======================================================================
+FAIL: test_manual_retained (test_classification_behavior.ClassificationBehaviorTests.test_manual_retained)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\All pro\Wadi project\Wadi Visit\tests\test_classification_behavior.py", line 66, in test_manual_retained
+    self.assertIn('يدوي',out.iloc[0]['Classification Reason'])
+AssertionError: 'يدوي' not found in 'تطابق الكلمات المفتاحية: متابعة'
+
+======================================================================
+FAIL: test_negated_order (test_classification_behavior.ClassificationBehaviorTests.test_negated_order)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\All pro\Wadi project\Wadi Visit\tests\test_classification_behavior.py", line 12, in test_negated_order
+    self.assertNotEqual(self.status('لم يتم الطلب'),'current')
+AssertionError: 'current' == 'current'
+
+======================================================================
+FAIL: test_reason_is_evidence_index (test_classification_behavior.ClassificationBehaviorTests.test_reason_is_evidence_index)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\All pro\Wadi project\Wadi Visit\tests\test_classification_behavior.py", line 68, in test_reason_is_evidence_index
+    def test_reason_is_evidence_index(self): self.assertIn('ليست احتمال',e.classify_note('تم الطلب')['reason'])
+                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'ليست احتمال' not found in 'تطابق الكلمات المفتاحية: تم الطلب'
+
+======================================================================
+FAIL: test_supplier (test_classification_behavior.ClassificationBehaviorTests.test_supplier)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\All pro\Wadi project\Wadi Visit\tests\test_classification_behavior.py", line 19, in test_supplier
+    self.assertEqual(self.status('شراء من المنافس'),'target')
+AssertionError: 'current' != 'target'
+- current
++ target
+
+
+----------------------------------------------------------------------
+Ran 20 tests in 0.123s
+
+FAILED (failures=15)

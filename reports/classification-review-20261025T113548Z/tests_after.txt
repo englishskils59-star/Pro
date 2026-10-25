@@ -1,0 +1,28 @@
+test_absence (test_classification_behavior.ClassificationBehaviorTests.test_absence) ... ok
+test_batch_contract_invalid_dates_identity (test_classification_behavior.ClassificationBehaviorTests.test_batch_contract_invalid_dates_identity) ... ok
+test_boundaries (test_classification_behavior.ClassificationBehaviorTests.test_boundaries) ... ok
+test_conflict_abstains (test_classification_behavior.ClassificationBehaviorTests.test_conflict_abstains) ... ok
+test_custom_duplicates_and_overlap (test_classification_behavior.ClassificationBehaviorTests.test_custom_duplicates_and_overlap) ... ok
+test_empty_missing (test_classification_behavior.ClassificationBehaviorTests.test_empty_missing) ... ok
+test_first_visit_not_first_deal (test_classification_behavior.ClassificationBehaviorTests.test_first_visit_not_first_deal) ... ok
+test_followup_is_insufficient (test_classification_behavior.ClassificationBehaviorTests.test_followup_is_insufficient) ... ok
+test_former (test_classification_behavior.ClassificationBehaviorTests.test_former) ... ok
+test_future_not_completed (test_classification_behavior.ClassificationBehaviorTests.test_future_not_completed) ... ok
+test_generic_purchase_abstains (test_classification_behavior.ClassificationBehaviorTests.test_generic_purchase_abstains) ... ok
+test_interest_and_refusal (test_classification_behavior.ClassificationBehaviorTests.test_interest_and_refusal) ... ok
+test_manual_retained (test_classification_behavior.ClassificationBehaviorTests.test_manual_retained) ... ok
+test_negated_order (test_classification_behavior.ClassificationBehaviorTests.test_negated_order) ... ok
+test_negation_scope (test_classification_behavior.ClassificationBehaviorTests.test_negation_scope) ... ok
+test_no_future_leakage (test_classification_behavior.ClassificationBehaviorTests.test_no_future_leakage) ... ok
+test_reason_is_evidence_index (test_classification_behavior.ClassificationBehaviorTests.test_reason_is_evidence_index) ... ok
+test_repeated_evidence (test_classification_behavior.ClassificationBehaviorTests.test_repeated_evidence) ... ok
+test_spelling_and_spacing (test_classification_behavior.ClassificationBehaviorTests.test_spelling_and_spacing) ... ok
+test_supplier (test_classification_behavior.ClassificationBehaviorTests.test_supplier) ... ok
+test_duplicate_groups (test_classification_corrections.CorrectionTests.test_duplicate_groups) ... ok
+test_explicit_provenance_and_version_history (test_classification_corrections.CorrectionTests.test_explicit_provenance_and_version_history) ... ok
+test_saved_override_survives_reclassification_without_live_writes (test_classification_corrections.CorrectionTests.test_saved_override_survives_reclassification_without_live_writes) ... ok
+
+----------------------------------------------------------------------
+Ran 23 tests in 0.495s
+
+OK

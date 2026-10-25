@@ -1,0 +1,73 @@
+{
+  "rows": 13503,
+  "same_dataset_as_round1": true,
+  "baseline_matches_round1_comparison": true,
+  "changed_this_round": 1652,
+  "changed_stored_vs_effective": 5393,
+  "manual_applied": 2603,
+  "all_manual_decisions_preserved": true,
+  "old_seconds": [
+    1.1809610000018438,
+    0.9964665999978024,
+    1.0451587999996264
+  ],
+  "new_seconds": [
+    1.5378940999980841,
+    1.5917469000014535,
+    1.6328706000022066
+  ],
+  "old_median": 1.0451587999996264,
+  "new_median": 1.5917469000014535,
+  "speed_ratio_old_over_new": 0.65661117354692,
+  "before_counts": {
+    "Unclassified": 6677,
+    "Potential Customer": 2562,
+    "Target Customer": 2389,
+    "Current Customer": 858,
+    "Not Interested": 674,
+    "No Meeting": 215,
+    "Former Customer": 99,
+    "New Customer": 29
+  },
+  "after_counts": {
+    "Unclassified": 7164,
+    "Target Customer": 2456,
+    "Potential Customer": 1778,
+    "Current Customer": 1025,
+    "Not Interested": 749,
+    "No Meeting": 225,
+    "Former Customer": 104,
+    "New Customer": 2
+  },
+  "sample_counts": {
+    "التعامل غير المباشر": 45,
+    "الاتفاق على بداية التعامل": 45,
+    "أول تعامل فعلي أو دليله المرشح": 9,
+    "التعارضات": 50,
+    "غير المصنف": 49,
+    "النتائج التي لم تتغير": 52
+  },
+  "sample_eligible_unique": {
+    "التعامل غير المباشر": 154,
+    "الاتفاق على بداية التعامل": 275,
+    "أول تعامل فعلي أو دليله المرشح": 9,
+    "التعارضات": 345,
+    "غير المصنف": 4695,
+    "النتائج التي لم تتغير": 7519
+  },
+  "sample_requested": {
+    "التعامل غير المباشر": 45,
+    "الاتفاق على بداية التعامل": 45,
+    "أول تعامل فعلي أو دليله المرشح": 30,
+    "التعارضات": 50,
+    "غير المصنف": 40,
+    "النتائج التي لم تتغير": 40
+  },
+  "sample_size": 250,
+  "sample_duplicate_threshold": 0.9,
+  "near_duplicate_rejections": 38,
+  "engine_version": "context-rules-2",
+  "definitions_version": "owner-approved-2026-10-25",
+  "accuracy": null,
+  "previous_xlsx_missing": true
+}

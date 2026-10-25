@@ -1,0 +1,19 @@
+{
+  "D:\\All pro\\Wadi project\\Wadi Visit\\data\\classified_data.parquet": "d32278d19b08306dcfa87283ea1208e7a67b59d560babdef6d4a61ffe06bad41",
+  "D:\\All pro\\Wadi project\\Wadi Visit\\data\\journey_data.parquet": "17b9fc2f52c7a22f7700ba54baf7b0d8606ebe60b44a7be1cf8779f7c8d423f8",
+  "D:\\All pro\\Wadi project\\Wadi Visit\\data\\last_upload.xlsx": "651fae8ef3164a3200f35d25af17065e1322a90ef14ec464b4768e6490045c29",
+  "D:\\All pro\\Wadi project\\Wadi Visit\\data\\metadata.json": "6e9d246259fdc6755c1478ca18c8c49071e09957b001c440a349a494f1e633fb",
+  "D:\\All pro\\Wadi project\\Wadi Visit\\data\\overrides.parquet": "24bd8f493c042e46a8be5e8190444d62f4e00872740eac0a5f726e25cba58e00",
+  "D:\\All pro\\Wadi project\\Wadi Visit\\data\\rep_kpi_data.parquet": "48777e1d6d3d8fa38d9abbd067d931447650d2047379f41b7c3f97ecde76eeea",
+  "D:\\Pro\\data\\classified_data.parquet": "3ea1e571a3e96d9ae05259bf031904193a6a958c460bf03790d938a9e8bc9eb3",
+  "D:\\Pro\\data\\custom_rules.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "D:\\Pro\\data\\gov_merges.parquet": "a1a1a9be23b2aa54db4b940f21aa4ea4fe742f11523b2acb1bd6968f1cbad3ef",
+  "D:\\Pro\\data\\journey_data.parquet": "f9dd634e18fcb0ca3bd98fdbf08525b9ce999b37f6ec7a9292bc068eef8450f7",
+  "D:\\Pro\\data\\last_upload.xlsx": "651fae8ef3164a3200f35d25af17065e1322a90ef14ec464b4768e6490045c29",
+  "D:\\Pro\\data\\metadata.json": "607f190ec480567d70cd7e9eaeecbd839ffba715a49432e5db4287fb3d961b76",
+  "D:\\Pro\\data\\name_merges.parquet": "2f64d001d2cb85ffcc74bad9ddc041bfb9d5f24089809fdca8363fdf9807fa3c",
+  "D:\\Pro\\data\\overrides.parquet": "b51d02d3af75ebe5279548305b28dc8004df88c06981f1d1a19762b8603c6bd3",
+  "D:\\Pro\\data\\removed_duplicates.parquet": "6164f271b81210fb133ccc402464d2e486a39e0c5ca69c442a17abf5b31556a1",
+  "D:\\Pro\\data\\rep_kpi_data.parquet": "3ef406d4072b6e8ae4992517914886dfd1c694afd5938d855fe5b15038b88978",
+  "D:\\Pro\\data\\rep_merges.parquet": "fbebf3da51bdd0df308e2cf8ae590ae7c884ca474535a49b6772b1367b7c1191"
+}

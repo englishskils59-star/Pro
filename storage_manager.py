@@ -534,10 +534,9 @@ def import_overrides(
             )
             continue
         for idx in indices:
-            updated_df.at[idx, "Display Status"]   = new_status
-            updated_df.at[idx, "Suggested Status"] = _display_to_internal(new_status)
-            updated_df.at[idx, "Override Source"]  = "Manual"
-            updated_df.at[idx, "Confidence Score"] = 100.0
+            from classification_context import apply_manual_result
+            from classification_engine import STATUS_DISPLAY
+            apply_manual_result(updated_df, idx, new_status, STATUS_DISPLAY)
             count_changed += 1
         applied_rows.append({
             "Key":            row["_key"],
@@ -709,10 +708,9 @@ def _apply_saved_overrides(classified_df: pd.DataFrame) -> tuple[pd.DataFrame, i
             if new_status not in VALID_STATUSES:
                 continue
             for idx in key_to_idx.get(row.get("Key"), []):
-                updated.at[idx, "Display Status"]   = new_status
-                updated.at[idx, "Suggested Status"] = _display_to_internal(new_status)
-                updated.at[idx, "Override Source"]  = "Manual"
-                updated.at[idx, "Confidence Score"] = 100.0
+                from classification_context import apply_manual_result
+                from classification_engine import STATUS_DISPLAY
+                apply_manual_result(updated, idx, new_status, STATUS_DISPLAY)
                 count += 1
 
         return updated, count

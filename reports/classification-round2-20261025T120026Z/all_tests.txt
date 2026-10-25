@@ -1,0 +1,60 @@
+2026-10-25 15:16:43.391 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+test_cache_invalidates_with_rules (test_classification_behavior.AdditionalBoundaryTests.test_cache_invalidates_with_rules) ... ok
+test_empty_and_duplicate_indices (test_classification_behavior.AdditionalBoundaryTests.test_empty_and_duplicate_indices) ... ok
+test_missing_date_column (test_classification_behavior.AdditionalBoundaryTests.test_missing_date_column) ... ok
+test_negation_does_not_swallow_next_proposition (test_classification_behavior.AdditionalBoundaryTests.test_negation_does_not_swallow_next_proposition) ... ok
+test_new_future_not_completed (test_classification_behavior.AdditionalBoundaryTests.test_new_future_not_completed) ... ok
+test_no_meeting_preserves_customer_standing (test_classification_behavior.AdditionalBoundaryTests.test_no_meeting_preserves_customer_standing) ... ok
+test_same_phrase_conflicting_custom_labels (test_classification_behavior.AdditionalBoundaryTests.test_same_phrase_conflicting_custom_labels) ... ok
+test_absence (test_classification_behavior.ClassificationBehaviorTests.test_absence) ... ok
+test_batch_contract_invalid_dates_identity (test_classification_behavior.ClassificationBehaviorTests.test_batch_contract_invalid_dates_identity) ... ok
+test_boundaries (test_classification_behavior.ClassificationBehaviorTests.test_boundaries) ... ok
+test_conflict_abstains (test_classification_behavior.ClassificationBehaviorTests.test_conflict_abstains) ... ok
+test_custom_duplicates_and_overlap (test_classification_behavior.ClassificationBehaviorTests.test_custom_duplicates_and_overlap) ... ok
+test_empty_missing (test_classification_behavior.ClassificationBehaviorTests.test_empty_missing) ... ok
+test_first_visit_not_first_deal (test_classification_behavior.ClassificationBehaviorTests.test_first_visit_not_first_deal) ... ok
+test_followup_is_insufficient (test_classification_behavior.ClassificationBehaviorTests.test_followup_is_insufficient) ... ok
+test_former (test_classification_behavior.ClassificationBehaviorTests.test_former) ... ok
+test_future_not_completed (test_classification_behavior.ClassificationBehaviorTests.test_future_not_completed) ... ok
+test_generic_purchase_abstains (test_classification_behavior.ClassificationBehaviorTests.test_generic_purchase_abstains) ... ok
+test_interest_and_refusal (test_classification_behavior.ClassificationBehaviorTests.test_interest_and_refusal) ... ok
+test_manual_retained (test_classification_behavior.ClassificationBehaviorTests.test_manual_retained) ... ok
+test_negated_order (test_classification_behavior.ClassificationBehaviorTests.test_negated_order) ... ok
+test_negation_scope (test_classification_behavior.ClassificationBehaviorTests.test_negation_scope) ... ok
+test_no_future_leakage (test_classification_behavior.ClassificationBehaviorTests.test_no_future_leakage) ... ok
+test_reason_is_evidence_index (test_classification_behavior.ClassificationBehaviorTests.test_reason_is_evidence_index) ... ok
+test_repeated_evidence (test_classification_behavior.ClassificationBehaviorTests.test_repeated_evidence) ... ok
+test_spelling_and_spacing (test_classification_behavior.ClassificationBehaviorTests.test_spelling_and_spacing) ... ok
+test_supplier (test_classification_behavior.ClassificationBehaviorTests.test_supplier) ... ok
+test_duplicate_groups (test_classification_corrections.CorrectionTests.test_duplicate_groups) ... ok
+test_explicit_provenance_and_version_history (test_classification_corrections.CorrectionTests.test_explicit_provenance_and_version_history) ... ok
+test_saved_override_survives_reclassification_without_live_writes (test_classification_corrections.CorrectionTests.test_saved_override_survives_reclassification_without_live_writes) ... ok
+test_actual_without_first (test_classification_round2.RoundTwoDefinitions.test_actual_without_first) ... ok
+test_agreement_potential (test_classification_round2.RoundTwoDefinitions.test_agreement_potential) ... ok
+test_competitor_and_refusal (test_classification_round2.RoundTwoDefinitions.test_competitor_and_refusal) ... ok
+test_first_actual (test_classification_round2.RoundTwoDefinitions.test_first_actual) ... ok
+test_former_return_not_current_or_new (test_classification_round2.RoundTwoDefinitions.test_former_return_not_current_or_new) ... ok
+test_increase_not_new_relationship (test_classification_round2.RoundTwoDefinitions.test_increase_not_new_relationship) ... ok
+test_indirect_current (test_classification_round2.RoundTwoDefinitions.test_indirect_current) ... ok
+test_journey_retains_approved_prior_status (test_classification_round2.RoundTwoDefinitions.test_journey_retains_approved_prior_status) ... ok
+test_negative_indirect (test_classification_round2.RoundTwoDefinitions.test_negative_indirect) ... ok
+test_never_infer_unknown_brand (test_classification_round2.RoundTwoDefinitions.test_never_infer_unknown_brand) ... ok
+test_new_not_competitor_or_future (test_classification_round2.RoundTwoDefinitions.test_new_not_competitor_or_future) ... ok
+test_no_evidence_first (test_classification_round2.RoundTwoDefinitions.test_no_evidence_first) ... ok
+test_not_client_stock_or_trade (test_classification_round2.RoundTwoDefinitions.test_not_client_stock_or_trade) ... ok
+test_offer_not_actual (test_classification_round2.RoundTwoDefinitions.test_offer_not_actual) ... ok
+test_real_mixed_refusal_stays_review (test_classification_round2.RoundTwoDefinitions.test_real_mixed_refusal_stays_review) ... ok
+test_vague_future (test_classification_round2.RoundTwoDefinitions.test_vague_future) ... ok
+test_arabic_default_and_unknown_fallback (test_localization.LocalizationTests.test_arabic_default_and_unknown_fallback) ... ok
+test_chart_business_names_and_values_remain_intact (test_localization.LocalizationTests.test_chart_business_names_and_values_remain_intact) ... ok
+test_chart_copy_does_not_mutate_cached_figure (test_localization.LocalizationTests.test_chart_copy_does_not_mutate_cached_figure) ... ok
+test_compound_options_keep_business_names_and_canonical_values (test_localization.LocalizationTests.test_compound_options_keep_business_names_and_canonical_values) ... ok
+test_display_copy_preserves_records_and_schema (test_localization.LocalizationTests.test_display_copy_preserves_records_and_schema) ... ok
+test_human_reports_follow_language (test_localization.LocalizationTests.test_human_reports_follow_language) ... ok
+test_inserted_values_are_not_translated (test_localization.LocalizationTests.test_inserted_values_are_not_translated) ... ok
+test_raw_export_schema_and_records_do_not_change (test_localization.LocalizationTests.test_raw_export_schema_and_records_do_not_change) ... ok
+
+----------------------------------------------------------------------
+Ran 54 tests in 0.992s
+
+OK
