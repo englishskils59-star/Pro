@@ -5,9 +5,10 @@ import unicodedata
 import pandas as pd
 from utils import normalize_arabic
 from classification_semantics import analyze
+from classification_refinements import refine, mask_nonfeed
 
-ENGINE_VERSION = "context-rules-2"
-DEFINITIONS_VERSION = "owner-approved-2026-10-25"
+ENGINE_VERSION = "context-rules-3"
+DEFINITIONS_VERSION = "owner-reviewed-2026-10-25-round3"
 SCORE_NOTE = "درجة قوة أدلة قواعد وليست احتمال صحة إحصائي"
 
 
@@ -37,7 +38,7 @@ _WEAK_CURRENT = {normalize_note(s) for s in [
 ]}
 _GENERIC_BUY = {normalize_note(s) for s in ["شراء", "اشترى", "استلام", "استلم", "دفع", "فاتورة"]}
 _SPLIT = re.compile(r"[،,؛;.!؟?\n]+|(?<!\w)(?:و?لكن(?:ه)?|بينما|ثم)(?!\w)|\s+(?=و(?:تم|اشترى|استلم|دفع|مهتم|يريد|كان|رفض|غير|لم|العميل|هو|يرفض|اتفقنا|لا|لن|بيسحب|بيستخدم|يتعامل|عنده|لديه)(?!\w))")
-_NEG = re.compile(r"(?<!\w)(?:لم|لن|لا|مش|ليس|غير|ما)(?!\w)")
+_NEG = re.compile(r"(?<!\w)(?:[وف])?(?:لم|لن|لا|مش|ليس|غير|ما)(?!\w)")
 _FUTURE = re.compile(r"(?<!\w)(?:سوف|سيتم|سيطلب|هيطلب|هينزل|هيطهر|سنطلب|سيشتري|سيستلم|هيشتري|ناوي|ينوي|وعد|نتمني|اذا|لو)(?!\w)|تم الاتفاق|التنسيق ل|الاتفاق علي|بعد انتهاء|عند انتهاء|القادم|القادمه")
 _OURS = re.compile(r"(?<!\w)(?:منا|معنا|الوادي)(?!\w)(?!\s+(?:النيل|للنيل))")
 _COMPETITOR = re.compile(r"(?<!\w)(?:المنافس|منافس|شركه اخري|مورد اخر|مورد تاني|نيوهوب|هايدا|الايمان|فيدميكس|فيدمكس|الشروق|وادي النيل|الوادي للنيل)(?!\w)")
@@ -63,6 +64,7 @@ def compile_rules(signature):
 
 
 def decide(normalized, signature):
+    normalized, masked_nonfeed = mask_nonfeed(normalized)
     matcher, by_phrase = compile_rules(signature)
     evidence, excluded = [], []
     signals = []
@@ -145,6 +147,8 @@ def decide(normalized, signature):
         remove.add("current")
         excluded.append("التعامل مثبت والأولية مثبتة؛ الحالة New وليست مجرد Current")
     evidence = [item for item in evidence if item[1] not in remove]
+    evidence, excluded = refine(normalized, evidence, excluded)
+    if masked_nonfeed:excluded.append("ذكر كتكوت أو تبريد الوادي لا يثبت التعامل بعلف الوادي")
     # One strongest item per status: repetition/synonyms cannot inflate scores.
     scores = {}
     for _, status, score in evidence:

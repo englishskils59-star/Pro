@@ -1,0 +1,112 @@
+{
+  "rows": 13503,
+  "validated_human_rows": 250,
+  "validation": {
+    "filled": 250,
+    "blank": 0,
+    "unknown": [],
+    "missing_id": [],
+    "text_mismatch": [],
+    "duplicate_ids": [],
+    "formula_labels": []
+  },
+  "agreement_name": "اتفاق على عينة التطوير",
+  "agreement_before": 114,
+  "agreement_text_only": 223,
+  "agreement_after": 226,
+  "remaining_disagreements": 24,
+  "class_agreement": [
+    {
+      "Human Status": "Current Customer",
+      "Reviewed": 38,
+      "Agreed Before": 19,
+      "Agreed After": 35,
+      "Before Rate": 0.5,
+      "After Rate": 0.9210526315789473
+    },
+    {
+      "Human Status": "Potential Customer",
+      "Reviewed": 153,
+      "Agreed Before": 60,
+      "Agreed After": 141,
+      "Before Rate": 0.39215686274509803,
+      "After Rate": 0.9215686274509803
+    },
+    {
+      "Human Status": "Target Customer",
+      "Reviewed": 17,
+      "Agreed Before": 9,
+      "Agreed After": 13,
+      "Before Rate": 0.5294117647058824,
+      "After Rate": 0.7647058823529411
+    },
+    {
+      "Human Status": "New Customer",
+      "Reviewed": 3,
+      "Agreed Before": 2,
+      "Agreed After": 3,
+      "Before Rate": 0.6666666666666666,
+      "After Rate": 1.0
+    },
+    {
+      "Human Status": "Former Customer",
+      "Reviewed": 5,
+      "Agreed Before": 0,
+      "Agreed After": 3,
+      "Before Rate": 0.0,
+      "After Rate": 0.6
+    },
+    {
+      "Human Status": "Not Interested",
+      "Reviewed": 21,
+      "Agreed Before": 12,
+      "Agreed After": 19,
+      "Before Rate": 0.5714285714285714,
+      "After Rate": 0.9047619047619048
+    },
+    {
+      "Human Status": "No Meeting",
+      "Reviewed": 3,
+      "Agreed Before": 3,
+      "Agreed After": 3,
+      "Before Rate": 1.0,
+      "After Rate": 1.0
+    },
+    {
+      "Human Status": "Unclassified",
+      "Reviewed": 10,
+      "Agreed Before": 9,
+      "Agreed After": 9,
+      "Before Rate": 0.9,
+      "After Rate": 0.9
+    }
+  ],
+  "changed_full_dataset": 3433,
+  "reference_changed": 132,
+  "manual_preserved": 2603,
+  "manual_vs_review_conflicts": 21,
+  "old_times": [
+    3.1028604000021005,
+    2.1622989999996207,
+    2.842456200000015
+  ],
+  "new_text_times": [
+    3.2068872999989253,
+    3.3545389999999315,
+    2.620138800000859
+  ],
+  "new_with_reference_times": [
+    3.903537900001538,
+    3.611052700001892,
+    6.255056999998487
+  ],
+  "new_review_size": 250,
+  "new_review_exclusions": {
+    "development_id": 5,
+    "exact_development_text": 15,
+    "near_development_text": 28,
+    "duplicate_new_text": 9
+  },
+  "accuracy": null,
+  "no_ml": true
+}

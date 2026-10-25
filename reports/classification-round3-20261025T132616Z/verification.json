@@ -1,0 +1,44 @@
+{
+  "independent_human_review_250.xlsx": [
+    {
+      "sheet": "مراجعة جديدة",
+      "rows": 251
+    },
+    {
+      "sheet": "طريقة الاختيار",
+      "rows": 11
+    }
+  ],
+  "development_agreement_round3_final.xlsx": [
+    {
+      "sheet": "اتفاق عينة التطوير",
+      "rows": 10
+    },
+    {
+      "sheet": "الاعتمادات والتفسير",
+      "rows": 251
+    },
+    {
+      "sheet": "اختلافات باقية",
+      "rows": 25
+    },
+    {
+      "sheet": "انتقالات الحالات",
+      "rows": 32
+    },
+    {
+      "sheet": "تعارض مع الحفظ اليدوي",
+      "rows": 22
+    },
+    {
+      "sheet": "دليل القياس",
+      "rows": 9
+    }
+  ],
+  "new_review_ids_disjoint": true,
+  "new_review_texts_disjoint": true,
+  "near_duplicate_threshold": 0.9,
+  "all_new_source_notes_match": true,
+  "all_business_and_prior_artifact_hashes_unchanged": true,
+  "tests_passed": 85
+}

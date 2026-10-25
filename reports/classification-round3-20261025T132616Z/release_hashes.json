@@ -1,0 +1,9 @@
+{
+  "classification_engine.py": "1254bebc26ff3344016f5cfbc168ed6443df18229bbe97ac771b2b9e9ec4a83c",
+  "classification_context.py": "e7cc1f69e4b64cb3f1fa1e65a79280b1ee3d329b29d366176e91b5849c246658",
+  "classification_semantics.py": "ef96f2e99f06c7ca919ba6164117818d8a01bb28f829026b06f672a38d73bb69",
+  "classification_refinements.py": "2d21e81a70672f23d2cb0dc4d912528e81902c30a46318e0cc91a369bfb81fc8",
+  "classification_references.py": "a351b802925cd042096db7fb4b2efa618285dc380654017cf1e90d2883e0d67d",
+  "tests/test_classification_round3.py": "e6814ad7f247e9718cd9b86c524a3447cc7d1e2f642ec58f48c74e59853ab98a",
+  "tests/evaluate_classification_round3.py": "1d555a8ed62e8ae3b9a9d54b5aeb792b4bde297afe4fa86d657abc3f185f3a07"
+}

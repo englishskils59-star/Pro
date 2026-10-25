@@ -527,7 +527,7 @@ def classify_note(note: str, is_first_appearance: bool = False) -> dict:
             "confidence":confidence,"score":score,"matched_keywords":list(keywords),"reason":reason}
 
 
-def classify_dataframe(df: pd.DataFrame, *, preserve_manual: bool = False) -> pd.DataFrame:
+def classify_dataframe(df: pd.DataFrame, *, preserve_manual: bool = False, reference_records=None) -> pd.DataFrame:
     """Keep the existing output schema and original fields.
 
     Default is rules-only, as in the original upload/reclassify call chain; the
@@ -540,6 +540,10 @@ def classify_dataframe(df: pd.DataFrame, *, preserve_manual: bool = False) -> pd
     snapshot is used for the whole batch. Identical normalized notes share work.
     """
     from classification_context import text_value
+    # Explicit reference snapshot, or the pre-existing saved classifications.
+    # No external I/O and no use of this batch's newly generated predictions.
+    if reference_records is None and "Display Status" in df:
+        reference_records = df.copy()
     df = df.copy()
     if "Visit Date" in df:
         dates = pd.to_datetime(df["Visit Date"],errors="coerce",format="mixed",utc=True)
@@ -572,6 +576,10 @@ def classify_dataframe(df: pd.DataFrame, *, preserve_manual: bool = False) -> pd
         values = [", ".join(r[key]) if key == "matched_keywords" else r[key] for r in results]
         dtype = float if key == "confidence" else (int if key == "score" else object)
         df[column] = pd.Series(values,dtype=dtype)
+    if reference_records is not None:
+        from classification_references import apply_supplier_references
+        from classification_context import _COMPETITOR
+        df = apply_supplier_references(df, reference_records, _COMPETITOR)
     return df
 
 
