@@ -366,7 +366,7 @@ def kpi_row(metrics: dict, cols_per_row: int = 4):
 
 
 def no_data_warning():
-    st.warning("⚠️ لا توجد بيانات. يرجى رفع ملف Excel من صفحة **مركز الرفع** أو تحميل البيانات المحفوظة.", icon="📂")
+    st.warning("⚠️ لا توجد بيانات. يرجى رفع ملف Excel من صفحة **استيراد بيانات الزيارات** أو تحميل البيانات المحفوظة.", icon="📂")
 
 
 def section(title, en=""):
@@ -574,7 +574,7 @@ with st.sidebar:
     st.markdown("---")
 
     page = st.radio("Navigation", options=[
-        "مركز الرفع",
+        "استيراد بيانات الزيارات",
         "تصنيف العملاء",
         "تحليلات العملاء",
         "أداء المندوبين",
@@ -638,11 +638,11 @@ with st.sidebar:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# PAGE 1 — UPLOAD CENTER
+# PAGE 1 — IMPORT VISIT DATA
 # ═══════════════════════════════════════════════════════════════════
 
-if page == "مركز الرفع":
-    page_banner("مركز الرفع", "UPLOAD CENTER — رفع ملف Excel وتشغيل محرك التصنيف", PAGE_ACCENT["upload"])
+if page == "استيراد بيانات الزيارات":
+    page_banner("استيراد بيانات الزيارات", "IMPORT VISIT DATA — رفع ملف Excel وتشغيل محرك التصنيف", PAGE_ACCENT["upload"])
 
     # ── Show saved data status ──
     if has_saved_data():

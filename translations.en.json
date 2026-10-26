@@ -1,5 +1,5 @@
 {
-  "مركز الرفع": "Upload Center",
+  "استيراد بيانات الزيارات": "Import Visit Data",
   "تصنيف العملاء": "Customer Classification",
   "تحليلات العملاء": "Customer Analytics",
   "أداء المندوبين": "Sales Rep Performance",
@@ -675,8 +675,8 @@
   "خطأ طباعة محتمل": "Possible Typo",
   "متتابعتان": "Consecutive",
   "متداخلتان": "Overlapping",
-  "⚠️ لا توجد بيانات. يرجى رفع ملف Excel من صفحة **مركز الرفع** أو تحميل البيانات المحفوظة.": "⚠️ No data available. Please upload an Excel file from **Upload Center** or load saved data.",
-  "UPLOAD CENTER — رفع ملف Excel وتشغيل محرك التصنيف": "UPLOAD CENTER — Upload an Excel file and run classification",
+  "⚠️ لا توجد بيانات. يرجى رفع ملف Excel من صفحة **استيراد بيانات الزيارات** أو تحميل البيانات المحفوظة.": "⚠️ No data available. Please upload an Excel file from **Import Visit Data** or load saved data.",
+  "IMPORT VISIT DATA — رفع ملف Excel وتشغيل محرك التصنيف": "IMPORT VISIT DATA — Upload an Excel file and run classification",
   "📊 تحديث التحليلات...": "📊 Updating Analytics...",
   "🔄 تطبيق التوحيد وإعادة بناء التحليلات...": "🔄 Applying Unification and Rebuilding Analytics...",
   "💾 حفظ البيانات...": "💾 Saving Data...",
