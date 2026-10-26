@@ -1,0 +1,31 @@
+{
+  "engine": "context-rules-5-operational-followup",
+  "visits": 13503,
+  "distribution": {
+    "Potential Customer": 5125,
+    "Target Customer": 3588,
+    "Current Customer": 3540,
+    "Not Interested": 696,
+    "No Meeting": 230,
+    "Former Customer": 228,
+    "New Customer": 96
+  },
+  "basis_counts": {
+    "TextEvidence": 7168,
+    "Manual": 2803,
+    "Followup": 1899,
+    "History": 800,
+    "DefaultTarget": 797,
+    "SupplierReference": 36
+  },
+  "manual_applied": 2803,
+  "manual_unclassified_released": 9,
+  "seconds": 25.139542599994456,
+  "backup": "D:\\All pro\\Wadi project\\Wadi Visit\\backups\\activate-followup-20261026T062355Z",
+  "data_dir": "D:\\Pro\\data",
+  "reload_verified": true,
+  "original_fields_and_ids_unchanged": true,
+  "overrides_and_excel_unchanged": true,
+  "transaction_status": "committed",
+  "tests_passed": 138
+}

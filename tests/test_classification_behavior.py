@@ -18,15 +18,15 @@ class ClassificationBehaviorTests(unittest.TestCase):
   self.assertEqual(self.status('شراء من الوادي'),'current')
   self.assertEqual(self.status('شراء من المنافس'),'target')
   self.assertNotEqual(self.status('تم الشراء من المنافس'),'current')
- def test_followup_is_insufficient(self):
-  self.assertEqual(self.status('متابعة العميل'),'unclassified')
+ def test_followup_is_current(self):
+  self.assertEqual(self.status('متابعة العميل'),'current')
  def test_former(self): self.assertEqual(self.status('كان يتعامل معنا وتوقف'),'former')
  def test_absence(self): self.assertEqual(self.status('لم يكن متواجدًا'),'no_meeting')
  def test_first_visit_not_first_deal(self):
   self.assertNotEqual(e.classify_note('أول زيارة للتعارف',True)['suggested_status'],'new')
- def test_conflict_abstains(self):
-  self.assertEqual(self.status('رفض التعامل، لكنه مهتم بالتجربة'),'unclassified')
-  self.assertEqual(self.status('كان يتعامل معنا وتوقف لكنه يريد الرجوع'),'unclassified')
+ def test_refusal_and_return_follow_operational_policy(self):
+  self.assertEqual(self.status('رفض التعامل، لكنه مهتم بالتجربة'),'not_interested')
+  self.assertEqual(self.status('كان يتعامل معنا وتوقف لكنه يريد الرجوع'),'potential')
  def test_negation_scope(self):
   self.assertEqual(self.status('لم تتم المقابلة؛ تم الطلب من الوادي'),'current')
   self.assertEqual(self.status('لم يكن مهتمًا لكنه تم الطلب من الوادي'),'current')
@@ -39,14 +39,14 @@ class ClassificationBehaviorTests(unittest.TestCase):
  def test_custom_duplicates_and_overlap(self):
   e.set_custom_rules([{'keyword':'تم الطلب','status':'current','score':100}]*3)
   self.assertEqual(e.classify_note('تم الطلب')['score'],100)
-  self.assertEqual(self.status('غير مهتم لكنه مهتم'),'unclassified')
+  self.assertEqual(self.status('غير مهتم لكنه مهتم'),'not_interested')
  def test_spelling_and_spacing(self):
   self.assertEqual(self.status('غَيْرُ   مُهْتَمّ'),'not_interested')
   self.assertEqual(self.status('شراء من الوادى'),'current')
   self.assertEqual(self.status('ومهتم'),'potential')
  def test_empty_missing(self):
   for value in ['',None,float('nan'),pd.NA]:
-   with self.subTest(value=str(value)): self.assertEqual(self.status(value),'unclassified')
+   with self.subTest(value=str(value)): self.assertEqual(self.status(value),'target')
  def test_batch_contract_invalid_dates_identity(self):
   frame=pd.DataFrame({'Customer Name':['','أحمد','احمد'], 'Visit Date':['bad','2026-01-01','2026-02-01'],'Visit Notes':['متابعة العميل','أول زيارة للتعارف','تم الطلب']})
   before=frame.copy(deep=True);out=e.classify_dataframe(frame)
@@ -64,7 +64,7 @@ class ClassificationBehaviorTests(unittest.TestCase):
   out=e.classify_dataframe(df,preserve_manual=True)
   self.assertEqual(out.iloc[0]['Display Status'],'Current Customer')
   self.assertIn('يدوي',out.iloc[0]['Classification Reason'])
- def test_generic_purchase_abstains(self): self.assertEqual(self.status('شراء'),'unclassified')
+ def test_generic_purchase_abstains(self): self.assertEqual(self.status('شراء'),'target')
  def test_reason_is_evidence_index(self): self.assertIn('ليست احتمال',e.classify_note('تم الطلب')['reason'])
 
 class AdditionalBoundaryTests(unittest.TestCase):
@@ -74,14 +74,14 @@ class AdditionalBoundaryTests(unittest.TestCase):
  def test_new_future_not_completed(self):
   self.assertNotEqual(e.classify_note('سوف بدأ العمل')['suggested_status'],'new')
  def test_cache_invalidates_with_rules(self):
-  self.assertEqual(e.classify_note('عبارة مراجعة خاصة')['suggested_status'],'unclassified')
+  self.assertEqual(e.classify_note('عبارة مراجعة خاصة')['suggested_status'],'target')
   e.set_custom_rules([{'keyword':'عبارة مراجعة خاصة','status':'potential','score':60}])
   self.assertEqual(e.classify_note('عبارة مراجعة خاصة')['suggested_status'],'potential')
   e.set_custom_rules([])
-  self.assertEqual(e.classify_note('عبارة مراجعة خاصة')['suggested_status'],'unclassified')
+  self.assertEqual(e.classify_note('عبارة مراجعة خاصة')['suggested_status'],'target')
  def test_same_phrase_conflicting_custom_labels(self):
   e.set_custom_rules([{'keyword':'عبارة خاصة','status':'current','score':100},{'keyword':'عبارة خاصة','status':'not_interested','score':100}])
-  self.assertEqual(e.classify_note('عبارة خاصة')['suggested_status'],'unclassified')
+  self.assertEqual(e.classify_note('عبارة خاصة')['suggested_status'],'target')
  def test_empty_and_duplicate_indices(self):
   empty=e.classify_dataframe(pd.DataFrame(columns=['Visit Date','Visit Notes']))
   self.assertEqual(len(empty),0);self.assertIn('Raw Score',empty)

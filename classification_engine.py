@@ -523,8 +523,9 @@ def classify_note(note: str, is_first_appearance: bool = False) -> dict:
     a commercial first transaction. No future/history/name inference is used.
     """
     suggested, confidence, score, keywords, reason = cached_decide(normalize_note(note), _RULE_SIGNATURE)
-    return {"suggested_status":suggested,"display_status":STATUS_DISPLAY[suggested],
-            "confidence":confidence,"score":score,"matched_keywords":list(keywords),"reason":reason}
+    from classification_policy import default_result
+    return default_result({"suggested_status":suggested,"display_status":STATUS_DISPLAY[suggested],
+            "confidence":confidence,"score":score,"matched_keywords":list(keywords),"reason":reason})
 
 
 def classify_dataframe(df: pd.DataFrame, *, preserve_manual: bool = False, reference_records=None) -> pd.DataFrame:
@@ -557,12 +558,11 @@ def classify_dataframe(df: pd.DataFrame, *, preserve_manual: bool = False, refer
     notes = df["Visit Notes"].tolist() if "Visit Notes" in df else [""] * len(df)
     displays = df["Display Status"].tolist() if "Display Status" in df else [""]*len(df)
     sources = df["Override Source"].tolist() if "Override Source" in df else [""]*len(df)
-    if not preserve_manual and "Override Source" in df:
-        df.loc[df["Override Source"].eq("Manual"), "Override Source"] = "Rules"
+    df["Override Source"] = ["Manual" if preserve_manual and text_value(s)=="Manual" and text_value(d) not in {"Unclassified", ""} else "Rules" for s,d in zip(sources,displays)]
     results = []
     local = {}
     for note,display,source in zip(notes,displays,sources):
-        if preserve_manual and text_value(source) == "Manual" and text_value(display) in STATUS_DISPLAY.values():
+        if preserve_manual and text_value(source) == "Manual" and text_value(display) in set(STATUS_DISPLAY.values()) - {"Unclassified"}:
             results.append(manual_result(text_value(display),STATUS_DISPLAY));continue
         norm = normalize_note(note)
         if norm not in local:
@@ -579,8 +579,10 @@ def classify_dataframe(df: pd.DataFrame, *, preserve_manual: bool = False, refer
     if reference_records is not None:
         from classification_references import apply_supplier_references
         from classification_context import _COMPETITOR
-        df = apply_supplier_references(df, reference_records, _COMPETITOR)
-    return df
+        from classification_policy import trusted_references
+        df = apply_supplier_references(df, trusted_references(reference_records), _COMPETITOR)
+    from classification_policy import apply_history_and_default
+    return apply_history_and_default(df, reference_records)
 
 
 # ═══════════════════════════════════════════════════════════════════

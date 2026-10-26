@@ -1,0 +1,15 @@
+{
+  "visits": 13503,
+  "unclassified": 0,
+  "original_excel_and_overrides_unchanged": true,
+  "app_ui_and_config_unchanged": true,
+  "default_confidence_zero": true,
+  "checks_completed_before_write_permission_retry": true,
+  "browser": {
+    "visits": 13503,
+    "classified": 13503,
+    "unclassified": 0,
+    "reloadVerified": true,
+    "dashboardChartsLoaded": true
+  }
+}

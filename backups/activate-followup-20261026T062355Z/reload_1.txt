@@ -1,0 +1,113 @@
+keyboard_double_arrow_left
+WDI Analytics
+Visit Analytics Engine v2.0
+
+مركز الرفع
+
+تصنيف العملاء
+
+تحليلات العملاء
+
+أداء المندوبين
+
+لوحة التحكم التنفيذية
+
+خطة المتابعة
+
+المنافسون
+
+عميل 360
+
+جودة البيانات والمحرك
+
+الإعدادات
+
+فلتر الفترة · DATE FILTER
+
+من
+
+Press the down arrow key to interact with the calendar and select a date. Press the escape button to close the calendar.
+
+Selected date is 2024/02/21. Select the second date.
+
+إلى
+
+Press the down arrow key to interact with the calendar and select a date. Press the escape button to close the calendar.
+
+Selected date is 2026/10/15. Select the second date.
+
+✅ تطبيق
+
+🔄 الكل
+
+البيانات المحملة · DATA
+last_upload.xlsx
+13,503 زيارة · 3,990 عميل
+18 مندوب مبيعات
+آخر حفظ: 2026-10-26 09:32
+✏ 2812 تصنيف يدوي محفوظ
+WDI Analytics v2.0 · Fully Offline
+Stop
+Deploy
+تصنيف العملاء
+CLASSIFICATION — محرك تصنيف بالكلمات المفتاحية لكل زيارة
+إجمالي الزيارات
+13,503
+عملاء فريدون
+3,990
+تم تصنيفهم
+13,503
+غير مصنف
+0
+
+
+
+📋 نتائج التصنيف
+
+🗺️ رحلة العميل
+
+✏️ تصنيف يدوي
+
+⚙️ قواعد الكلمات
+
+📥 تصدير
+
+🔗 توحيد الأسماء
+
+نتائج التصنيف
+
+طريقة العرض
+
+👤 موقف نهائي لكل عميل
+
+📋 كل الزيارات
+
+بحث باسم العميل…
+
+المندوب
+
+الكل
+
+الحالة
+
+الكل
+
+حد الثقة الأدنى
+
+0
+
+0
+
+100
+
+توزيع مستوى الثقة CONFIDENCE
+
+توزيع الحالات في النتائج المفلترة
+
+👤
+
+3,990 عميل فريد
+
+keyboard_arrow_right
+
+📋 الأعمدة المطلوبة

@@ -1,0 +1,14 @@
+WDI Analytics
+Visit Analytics Engine v2.0
+فلتر الفترة · DATE FILTER
+البيانات المحملة · DATA
+last_upload.xlsx
+13,503 زيارة · 3,990 عميل
+18 مندوب مبيعات
+آخر حفظ: 2026-10-26 09:32
+✏ 2812 تصنيف يدوي محفوظ
+WDI Analytics v2.0 · Fully Offline
+Stop
+Deploy
+مركز الرفع
+UPLOAD CENTER — رفع ملف Excel وتشغيل محرك التصنيف

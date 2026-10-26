@@ -9,7 +9,7 @@ class ReturnIntentTests(unittest.TestCase):
  def test_stopped_with_descriptive_prefix(self):
   self.check('تاجر شغال علف الوادي كان شغال وتوقف نرجع نشتغل','former')
  def test_wish_alone_not_customer_acceptance(self):
-  self.check('إن شاء الله نرجع نشتغل تاني','unclassified')
+  self.check('إن شاء الله نرجع نشتغل تاني','target')
  def test_former_wish_not_agreement(self):
   self.check('عميل سابق للوادي توقف إن شاء الله نرجع نشتغل','former')
  def test_former_explicit_acceptance(self):

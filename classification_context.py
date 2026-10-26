@@ -8,8 +8,8 @@ from classification_semantics import analyze
 from classification_refinements import refine, mask_nonfeed
 from classification_abstention import refine_abstentions
 
-ENGINE_VERSION = "context-rules-4-abstention-fixes"
-DEFINITIONS_VERSION = "owner-reviewed-2026-10-26-round4-abstention-fixes"
+ENGINE_VERSION = "context-rules-5-operational-followup"
+DEFINITIONS_VERSION = "owner-approved-2026-10-26-operational-followup"
 SCORE_NOTE = "درجة قوة أدلة قواعد وليست احتمال صحة إحصائي"
 
 
@@ -47,7 +47,7 @@ _SPLIT = re.compile(r"[،,؛;.!؟?\n]+|(?<!\w)(?:و?لكن(?:ه)?|بينما|ث�
 _NEG = re.compile(r"(?<!\w)(?:[وف])?(?:لم|لن|لا|مش|ليس|غير|ما)(?!\w)")
 _FUTURE = re.compile(r"(?<!\w)(?:سوف|سيتم|سيطلب|هيطلب|هينزل|هيطهر|سنطلب|سيشتري|سيستلم|هيشتري|ناوي|ينوي|وعد|نتمني|اذا|لو)(?!\w)|تم الاتفاق|التنسيق ل|الاتفاق علي|بعد انتهاء|عند انتهاء|القادم|القادمه")
 _OURS = re.compile(r"(?<!\w)(?:منا|معنا|الوادي)(?!\w)(?!\s+(?:النيل|للنيل))")
-_COMPETITOR = re.compile(r"(?<!\w)(?:المنافس|منافس|شركه اخري|مورد اخر|مورد تاني|نيوهوب|هايدا|الايمان|فيدميكس|فيدمكس|الشروق|وادي النيل|الوادي للنيل)(?!\w)")
+_COMPETITOR = re.compile(r"(?<!\w)(?:[وف]?[بل]?)?(?:المنافس|منافس|شركه اخري|مورد اخر|مورد تاني|نيوهوب|هايدا|الايمان|فيدميكس|فيدمكس|الشروق|وادي النيل|الوادي للنيل)(?!\w)")
 # Extra phrases express the same existing statuses, never a new status.
 CONTEXT_RULES = [
     {"keyword": "لم يكن متواجدا", "status": "no_meeting", "score": 100},
@@ -155,6 +155,8 @@ def decide(normalized, signature):
     evidence = [item for item in evidence if item[1] not in remove]
     evidence, excluded = refine(normalized, evidence, excluded)
     evidence, excluded = refine_abstentions(normalized, evidence, excluded, _COMPETITOR)
+    from classification_policy import refine_policy
+    evidence, excluded = refine_policy(normalized, evidence, excluded)
     if masked_nonfeed:excluded.append("ذكر كتكوت أو تبريد الوادي لا يثبت التعامل بعلف الوادي")
     # One strongest item per status: repetition/synonyms cannot inflate scores.
     scores = {}
@@ -207,3 +209,4 @@ def apply_manual_result(frame, index, display, status_display):
         frame.at[index,column] = result[key]
     frame.at[index,'Matched Keywords'] = ''
     frame.at[index,'Override Source'] = 'Manual'
+    frame.at[index,'Classification Basis'] = 'Manual'

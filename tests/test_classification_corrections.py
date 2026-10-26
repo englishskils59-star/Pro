@@ -38,7 +38,7 @@ class CorrectionTests(unittest.TestCase):
    (Path(t)/'overrides.parquet').unlink()
    cleared,n=sm.apply_saved_overrides(e.classify_dataframe(out))
    self.assertEqual(n,0)
-   self.assertEqual(cleared.iloc[0]['Display Status'],'Unclassified')
+   self.assertEqual(cleared.iloc[0]['Display Status'],'Current Customer')
    self.assertNotEqual(cleared.iloc[0]['Override Source'],'Manual')
 
 if __name__=='__main__': unittest.main()

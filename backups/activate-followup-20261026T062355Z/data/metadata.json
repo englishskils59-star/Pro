@@ -1,0 +1,15 @@
+{
+  "file_name": "last_upload.xlsx",
+  "total_records": 13503,
+  "unique_customers": 3990,
+  "unique_reps": 18,
+  "date_range_start": "2024-02-21",
+  "date_range_end": "2026-10-15",
+  "override_count": 2812,
+  "last_saved": "2026-10-26 08:25:20",
+  "override_key_version": 2,
+  "classification_engine_version": "context-rules-4",
+  "classification_definitions_version": "owner-reviewed-2026-10-26-round4",
+  "classification_activated_at": "2026-10-26T08:25:08.933635+03:00",
+  "approved_review_count": 250
+}

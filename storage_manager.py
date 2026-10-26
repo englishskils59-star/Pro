@@ -715,7 +715,7 @@ def _apply_saved_overrides(classified_df: pd.DataFrame) -> tuple[pd.DataFrame, i
         count = 0
         for _, row in overrides.iterrows():
             new_status = str(row["Manual Status"]).strip()
-            if new_status not in set(VALID_STATUSES) | {"Unclassified"}:
+            if new_status not in set(VALID_STATUSES):
                 continue
             for idx in key_to_idx.get(row.get("Key"), []):
                 from classification_context import apply_manual_result

@@ -35,14 +35,14 @@ class RoundTwoDefinitions(unittest.TestCase):
  def test_increase_not_new_relationship(self):
   for s in ['بيستخدم الوادي واتفقنا على زيادة المسحوبات','بيسحب الوادي من الموزع؛ تم الاتفاق على زيادة التعامل','شغال الوادي واتفقنا على زيادة السحب']:
    with self.subTest(s=s):self.check(s,'current')
- def test_real_mixed_refusal_stays_review(self):
-  self.check('بيستخدم الوادي لكنه غير مهتم بالتعامل مع الوادي','unclassified')
+ def test_explicit_refusal_precedes_other_signals(self):
+  self.check('بيستخدم الوادي لكنه غير مهتم بالتعامل مع الوادي','not_interested')
  def test_former_return_not_current_or_new(self):
   for s in ['كان يتعامل معنا وتوقف لكنه يريد الرجوع','كان يتعامل معنا وتوقف ويفكر في الرجوع','كان بيسحب الوادي من الموزع','كان يتعامل معنا وتوقف؛ اتفقنا على العودة']:
    with self.subTest(s=s):self.assertNotIn(e.classify_note(s)['suggested_status'],['current','new'])
  def test_vague_future(self):
   for s in ['إن شاء الله','الفترة القادمة','إن شاء الله الفترة القادمة']:
-   with self.subTest(s=s):self.check(s,'unclassified')
+   with self.subTest(s=s):self.check(s,'target')
  def test_never_infer_unknown_brand(self):
   for s in ['بيستخدم بريمو من الموزع','عنده مخزون منتج الموزع','اسم الموزع أحمد']:
    with self.subTest(s=s):self.assertNotEqual(e.classify_note(s)['suggested_status'],'current')
@@ -52,10 +52,10 @@ class RoundTwoDefinitions(unittest.TestCase):
  def test_journey_retains_approved_prior_status(self):
   frame=pd.DataFrame({'Customer Name':['أحمد']*2,'Visit Date':pd.to_datetime(['2026-01-01','2026-02-01']),'Visit Notes':['تم الطلب','متابعة العميل'],'Override Source':['Manual','Rules'],'Display Status':['Current Customer','Unclassified']})
   out=e.classify_dataframe(frame,preserve_manual=True)
-  self.assertEqual(out.iloc[1]['Display Status'],'Unclassified')
+  self.assertEqual(out.iloc[1]['Display Status'],'Current Customer')
   journey=e.build_customer_journey(out)
   self.assertEqual(journey.iloc[0]['Latest Status'],'Current Customer')
   self.assertIn('[2026-01-01] Current Customer',journey.iloc[0]['Status History'])
-  self.assertIn('[2026-02-01] Unclassified',journey.iloc[0]['Status History'])
+  self.assertIn('[2026-02-01] Current Customer',journey.iloc[0]['Status History'])
 
 if __name__=='__main__':unittest.main()
