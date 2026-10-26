@@ -1,0 +1,42 @@
+{
+  "root": "D:\\All pro\\Wadi project\\Wadi Visit",
+  "data": "D:\\Pro\\data",
+  "pid": 10436,
+  "command": [
+    "-m",
+    "streamlit",
+    "run",
+    "app.py",
+    "--server.address",
+    "0.0.0.0",
+    "--server.port",
+    "8501",
+    "--browser.gatherUsageStats",
+    "false"
+  ],
+  "hashes": {
+    "approved_review_input.xlsx": "e84b42da21417d9e5fdba9d950943df2948c8131271415f61cf946f7c5cfe23e",
+    "code\\app.py": "64ba7ed98ba894edc290854b5116a59d92d63ba45762d734c3f98a9330acf47e",
+    "code\\classification_context.py": "f28bd04ff3d28fed32855ace683382c21ceb75f4935101411e87a7cf3c6e96b9",
+    "code\\classification_engine.py": "1254bebc26ff3344016f5cfbc168ed6443df18229bbe97ac771b2b9e9ec4a83c",
+    "code\\classification_references.py": "a351b802925cd042096db7fb4b2efa618285dc380654017cf1e90d2883e0d67d",
+    "code\\classification_refinements.py": "1c28a98ba9e315f8589ea5dc8e7175e677b642de6b1b19e03d8da6605eff0575",
+    "code\\classification_semantics.py": "ef96f2e99f06c7ca919ba6164117818d8a01bb28f829026b06f672a38d73bb69",
+    "code\\run.bat": "a7fe08035f7a588f86c18913a2ebcb4fcffc64677bbd12ebb0ee3b7253de9bc0",
+    "code\\storage_manager.py": "5f1373485f5ed54ad04f81be89223f615c8cbda961cdb30da80d74c8c01ad2f4",
+    "code\\wdi_config.json": "9897f39c15f9a86d999aaab2e1c8e750bd67331e8995e2471379a08e314ae5dc",
+    "data\\.wdi_lock": "d664ca57edc356e12f48716244c6b23dcd2778e8d306220bcd38a8a8703a9c16",
+    "data\\classified_data.parquet": "3ea1e571a3e96d9ae05259bf031904193a6a958c460bf03790d938a9e8bc9eb3",
+    "data\\custom_rules.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "data\\gov_merges.parquet": "a1a1a9be23b2aa54db4b940f21aa4ea4fe742f11523b2acb1bd6968f1cbad3ef",
+    "data\\journey_data.parquet": "f9dd634e18fcb0ca3bd98fdbf08525b9ce999b37f6ec7a9292bc068eef8450f7",
+    "data\\last_upload.xlsx": "651fae8ef3164a3200f35d25af17065e1322a90ef14ec464b4768e6490045c29",
+    "data\\metadata.json": "607f190ec480567d70cd7e9eaeecbd839ffba715a49432e5db4287fb3d961b76",
+    "data\\name_merges.parquet": "2f64d001d2cb85ffcc74bad9ddc041bfb9d5f24089809fdca8363fdf9807fa3c",
+    "data\\overrides.parquet": "b51d02d3af75ebe5279548305b28dc8004df88c06981f1d1a19762b8603c6bd3",
+    "data\\removed_duplicates.parquet": "6164f271b81210fb133ccc402464d2e486a39e0c5ca69c442a17abf5b31556a1",
+    "data\\rep_kpi_data.parquet": "3ef406d4072b6e8ae4992517914886dfd1c694afd5938d855fe5b15038b88978",
+    "data\\rep_merges.parquet": "fbebf3da51bdd0df308e2cf8ae590ae7c884ca474535a49b6772b1367b7c1191",
+    "code\\.streamlit\\config.toml": "50901478ffe84cd9791612b778622e8cf5414df3852a2efb6c6eebe4faa95c70"
+  }
+}

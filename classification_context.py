@@ -6,9 +6,10 @@ import pandas as pd
 from utils import normalize_arabic
 from classification_semantics import analyze
 from classification_refinements import refine, mask_nonfeed
+from classification_abstention import refine_abstentions
 
-ENGINE_VERSION = "context-rules-3"
-DEFINITIONS_VERSION = "owner-reviewed-2026-10-25-round3"
+ENGINE_VERSION = "context-rules-4-abstention-fixes"
+DEFINITIONS_VERSION = "owner-reviewed-2026-10-26-round4-abstention-fixes"
 SCORE_NOTE = "درجة قوة أدلة قواعد وليست احتمال صحة إحصائي"
 
 
@@ -24,7 +25,12 @@ def text_value(value):
 
 
 def normalize_note(value):
-    return normalize_arabic(unicodedata.normalize("NFKC", text_value(value))).casefold()
+    text = normalize_arabic(unicodedata.normalize("NFKC", text_value(value))).casefold()
+    # Classification-only token repair; original records and visit-key normalization stay untouched.
+    text = re.sub(r"(?<=\d)(?=[\u0621-\u064a])|(?<=[\u0621-\u064a])(?=\d)", " ", text)
+    text = re.sub(r"(?<!\w)(يوم|ايام|شهر|اسبوع)(?=(?:يتعامل|بيسحب|يعمل|بيستخدم|يشتغل)(?!\w))", r"\1 ", text)
+    text = re.sub(r"(?<!\w)(طن|اطنان|شيكاره|كجم)(?=الوادي(?!\w))", r"\1 ", text)
+    return " ".join(text.split())
 
 
 # These base expressions describe a visit/task/object, not completed trade.
@@ -118,7 +124,7 @@ def decide(normalized, signature):
                     why = "متابعة أو إجراء دون دليل تعامل مكتمل"
                 elif status in {"current", "new"} and _FUTURE.search(local + " " + phrase):
                     why = "نية أو اتفاق مستقبلي لا يثبت التنفيذ"
-                elif status == "current" and re.search(r"(?<!\w)كان(?:ت)?(?!\w)", local):
+                elif status == "current" and re.search(r"(?<!\w)(?:[وف])?كان(?:ت)?(?!\w)", local):
                     why = "تعامل ماض لا يثبت استمرار التعامل"
                 elif status in {"current", "new"} and _COMPETITOR.search(clause) and not _OURS.search(clause):
                     status, score = "target", 40
@@ -148,6 +154,7 @@ def decide(normalized, signature):
         excluded.append("التعامل مثبت والأولية مثبتة؛ الحالة New وليست مجرد Current")
     evidence = [item for item in evidence if item[1] not in remove]
     evidence, excluded = refine(normalized, evidence, excluded)
+    evidence, excluded = refine_abstentions(normalized, evidence, excluded, _COMPETITOR)
     if masked_nonfeed:excluded.append("ذكر كتكوت أو تبريد الوادي لا يثبت التعامل بعلف الوادي")
     # One strongest item per status: repetition/synonyms cannot inflate scores.
     scores = {}

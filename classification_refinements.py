@@ -25,6 +25,10 @@ _FUTURE_ORDER=re.compile(r'سيتم طلب|هيتم طلب|سيقوم بطلب|�
 _ORDER_ONLY=re.compile(r'تم طلب (?:نقله|كميه)|تم تسجيل طلب')
 _RECEIVED=re.compile(r'تم (?:التحميل|تحميل|التوصيل|توصيل|السحب|سحب|الاستلام|استلام|التوريد|توريد)|استلم|لسه منزل|تم تنزيل|تم تنفيذ')
 _PAST_OWN=re.compile(r'كان\s+(?:شغال|يسحب|يتعامل|يعمل|بيوكل).*(?:الوادي|معنا)|عميل (?:سابق|ساابق)\s+(?:للوادي|لنا)|اشتغل.*(?:في|مع) الوادي.*بعد كده')
+# A postposed past predicate describes stopped trade, not a new current fact.
+_STOPPED_TRADE=re.compile(r'(?:شغال|يتعامل)\s+(?:\w+\s+){0,2}الوادي\s+كان\s+(?:شغال|يتعامل)\s+وتوقف(?!\w)')
+_RETURN_AGREED=re.compile(r'(?<!\w)(?:[وف])?(?:وافق|موافق|اتفقنا معه|تم الاتفاق معه|ابدي استعداده|ابدي رغبته).*(?:العوده|الرجوع|نرجع|نشتغل|العمل|التعامل)|(?:التفاوض).*(?:العموله|التسديد|التساهل|اعاده نزول)|غير ممانع|سيقوم بطلب|سيتم نزول المنتج|(?:بس|بشرط)\s+(?:ظبط|تظبط|تعديل)\s+(?:لي\s+)?(?:الخصم|السعر|نظام السداد)')
+_WE_RETURN=re.compile(r'(?<!\w)نرجع\s+نشتغل(?!\w)')
 _PAST_BARRIER=re.compile(r'صعبه في الفتره|صعب حاليا|رفض فكره الكاش|حاليا مبطل')
 _SELF_MIX=re.compile(r'علف دش من مدشه|مدشه تابع له|مدشه داخل المزرعه')
 
@@ -37,11 +41,18 @@ def refine(text,evidence,excluded):
     """Return explanatory evidence under explicit counterparty/time conditions."""
     evidence=list(evidence)
     actual=False
+    actual_positions=[]
     for match in _FACT.finditer(text):
         prefix=' '.join(text[:match.start()].split()[-4:])
         if not _NEG.search(prefix) and not re.search(r'كان|سوف|سيتم|هيتم|امكانيه|امكانيه|بدء',prefix) and client_subject(text,match.start()):
             actual=True
+            actual_positions.append(match.start())
     if _ADOPT.search(text) and not re.search(r'سيتم الاعتماد|هيتم الاعتماد|سوف.*الاعتماد',text):actual=True
+    stopped_match=_STOPPED_TRADE.search(text)
+    stopped_trade=bool(stopped_match)
+    if stopped_trade:
+        actual=any(pos>stopped_match.end() for pos in actual_positions)
+        excluded.append('التعامل المذكور موصوف لاحقًا بأنه توقف؛ لا يثبت الاستمرار')
     increased=bool(_INCREMENT.search(text) and re.search(r'عميل|مسحوب|سحب|كميه|شغال|يتعامل',text))
     ongoing=bool((_EXISTING.search(text) and _RENEW.search(text)) or re.search(r'اخر سحب.*الاستمرار',text))
     # Owner-authorized context: increase over existing quantities, not distributor identity.
@@ -59,6 +70,18 @@ def refine(text,evidence,excluded):
         potential=False
         evidence=[x for x in evidence if x[1]!='potential']
         evidence.append(('عرض منتج فقط دون تفاوض أو استعداد مثبت','target',40))
+    # First-person plural wishes do not establish the customer's acceptance.
+    accepted_return=any(
+        not _NEG.search(' '.join(text[:m.start()].split()[-4:]))
+        and (not re.match(r'(?:[وف])?(?:وافق|موافق)(?!\w)',m.group()) or client_subject(text,m.start()))
+        and not re.match(r'(?:[وف])?(?:وافق|موافق)\s+(?:الموزع|المندوب|المورد)(?!\w)',m.group())
+        for m in _RETURN_AGREED.finditer(text)
+    )
+    weak_return=bool(_WE_RETURN.search(text) and not accepted_return)
+    if weak_return:
+        potential=bool((_NEGOTIATE.search(text) and _BUSINESS.search(text)) or _FUTURE_ORDER.search(text))
+        evidence=[x for x in evidence if not (x[1]=='potential' and _WE_RETURN.search(x[0]))]
+        excluded.append('رغبة بصيغة نرجع نشتغل لا تثبت موافقة العميل على العودة')
     hypothetical=bool(_HYPOTHETICAL.search(text));route=bool(_ROUTE_REFUSAL.search(text))
     explicit_refusal=bool(_REJECTION.search(text)) and not hypothetical
     tentative=bool(re.search(r'سيفكر|امكانيه.*يجرب|ممكن.*يجرب|وافق.*موزع اخر|ابدي مرونه',text))
@@ -68,8 +91,11 @@ def refine(text,evidence,excluded):
     # Asking for credit is negotiation, distinct from explicitly rejecting cash.
     if potential and not explicit_refusal:
         evidence=[x for x in evidence if not (x[1]=='not_interested' and re.search(r'اجل|مستقر مع|ملتزم بكميات',x[0]))]
-    former=bool(_PAST_OWN.search(text) and re.search(r'توقف|مبطل|سابق|ساابق|بعد كده',text))
-    actionable_return=bool(re.search(r'التفاوض.*(?:العموله|التسديد|التساهل|اعاده نزول)|غير ممانع|سيقوم بطلب|سيتم نزول المنتج|نرجع نشتغل',text))
+    former=bool(stopped_trade or (_PAST_OWN.search(text) and re.search(r'توقف|مبطل|سابق|ساابق|بعد كده',text)))
+    actionable_return=accepted_return
+    if weak_return and not former and not re.search(OWN,text):
+        evidence=[x for x in evidence if x[1]!='former']
+        excluded.append('توقف تعامل غير منسوب للوادي لا يثبت أنه عميل وادي سابق')
     if former and not actual:
         evidence=[x for x in evidence if x[1] not in {'current','new'}]
         evidence.append(('تعامل وادي سابق متوقف أو استبدل بجهة أخرى','former',60))
@@ -90,7 +116,9 @@ def refine(text,evidence,excluded):
         evidence=[x for x in evidence if x[1] not in {'current','new','target','not_interested'}]
         evidence.append(('تفاوض أو استعداد أو ترتيب طلب قبل إثبات التنفيذ','potential',60))
     if actual and not explicit_refusal:
-        evidence=[x for x in evidence if x[1] not in {'potential','target'}]
+        removable={'potential','target'}
+        if stopped_trade and any(pos>stopped_match.end() for pos in actual_positions):removable.add('former')
+        evidence=[x for x in evidence if x[1] not in removable]
         excluded.append('التفاوض أو ترتيب الطلب الإضافي لا يلغي التعامل القائم')
     if explicit_refusal and not actual:
         has_positive_interest=any(x[0] in {'مهتم','يرغب','متحمس للعمل'} for x in evidence if x[1]=='potential')

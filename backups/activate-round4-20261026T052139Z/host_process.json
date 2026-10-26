@@ -1,0 +1,9 @@
+{
+  "manual_fallback": true,
+  "pid": 41800,
+  "root": "D:\\All pro\\Wadi project\\Wadi Visit",
+  "url": "http://localhost:8501/",
+  "address": "0.0.0.0",
+  "port": 8501,
+  "startup_command": "python -m streamlit run app.py --server.address 0.0.0.0 --server.port 8501 --browser.gatherUsageStats false"
+}

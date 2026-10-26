@@ -40,7 +40,7 @@ from storage_manager import (
     load_config, save_config, set_data_dir, get_data_dir,
     has_saved_data, get_saved_metadata, load_session, save_session,
     export_unclassified, import_overrides, clear_overrides, clear_all_data,
-    storage_status, VALID_STATUSES, apply_saved_overrides, apply_name_merges,
+    storage_status, VALID_STATUSES, apply_saved_overrides, apply_name_merges, load_classification_references,
     load_custom_rules, save_custom_rules, load_name_merges, save_name_merges,
     load_rep_merges, save_rep_merges, apply_rep_merges,
     load_gov_merges, save_gov_merges, apply_gov_merges, apply_all_merges,
@@ -485,7 +485,7 @@ def reclassify_and_save():
     re-apply manual overrides, rebuild everything and persist."""
     master = st.session_state["classified_df"]
     with st.spinner("🧠 إعادة التصنيف..."):
-        reclassified = classify_dataframe(master)
+        reclassified = classify_dataframe(master, reference_records=load_classification_references())
         reclassified, _ = apply_saved_overrides(reclassified)
         st.session_state["classified_df"] = reclassified
     with st.spinner("📖 إعادة بناء رحلة العميل..."):
@@ -510,7 +510,7 @@ def run_full_pipeline(raw_df: pd.DataFrame, uploaded_file=None):
                 st.info(translated(''.join([tr('🧹 تم حذف '), f'{len(dropped):,}', tr(' زيارة مكررة تماماً أثناء الرفع (يمكن إيقاف ذلك من تبويب «التكرارات»)')])))
         st.session_state["clean_df"] = clean
     with st.spinner("🧠 تصنيف الزيارات..."):
-        classified = classify_dataframe(clean)
+        classified = classify_dataframe(clean, reference_records=load_classification_references())
         # Re-apply saved manual classifications (matched by visit key,
         # so they survive re-uploads of updated files)
         classified, n_overrides = apply_saved_overrides(classified)
@@ -847,9 +847,9 @@ elif page == "تصنيف العملاء":
             _log["Visit Notes"] = _log["Visit Notes"].astype(str).str.slice(0, 90)
             _log["Confidence Score"] = pd.to_numeric(_log["Confidence Score"], errors="coerce").fillna(0).round(0).astype(int)
             # سبب التصنيف — الكلمات التي التقطها المحرك (قابلية التفسير الكاملة)
-            _log["سبب التصنيف"] = (_log["Matched Keywords"].astype(str).str.slice(0, 60)
+            _log["سبب التصنيف"] = (_log["Classification Reason"].fillna("—").astype(str)
                                     .replace({"": "—", "nan": "—"})
-                                    if "Matched Keywords" in _log.columns else "—")
+                                    if "Classification Reason" in _log.columns else "—")
             _log_cols = [c for c in ["Visit Date", "Customer Name", "Sales Rep Name",
                                      "Display Status", "Confidence Score", "سبب التصنيف",
                                      "Visit Notes"]

@@ -1,0 +1,12 @@
+{
+  "tests_passed": 126,
+  "new_test_methods": 22,
+  "all_file_rows_uniquely_linked": true,
+  "row_number_not_used_as_identity": true,
+  "protected_hashes_unchanged": true,
+  "manual_subset_retained": 9,
+  "source_saved": false,
+  "new_exits": 80,
+  "remaining": 3466,
+  "report_totals_reconciled": true
+}

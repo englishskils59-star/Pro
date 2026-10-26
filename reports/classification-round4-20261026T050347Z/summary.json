@@ -1,0 +1,175 @@
+{
+  "metric_name": "اتفاق على عينة التطوير",
+  "validation": {
+    "rows": 250,
+    "filled": 250,
+    "blank": 0,
+    "unknown": []
+  },
+  "source_rows": 13503,
+  "review_changes": 3,
+  "classification_changes": 3,
+  "comment_changes": 3,
+  "agreement": {
+    "Before text": 225,
+    "After text": 226,
+    "Before references": 228,
+    "After references": 229
+  },
+  "by_class": [
+    {
+      "Status": "Current Customer",
+      "Reviewed": 38,
+      "Before text": 32,
+      "After text": 32,
+      "Before references": 35,
+      "After references": 35
+    },
+    {
+      "Status": "Potential Customer",
+      "Reviewed": 154,
+      "Before text": 143,
+      "After text": 143,
+      "Before references": 143,
+      "After references": 143
+    },
+    {
+      "Status": "Target Customer",
+      "Reviewed": 17,
+      "Before text": 13,
+      "After text": 13,
+      "Before references": 13,
+      "After references": 13
+    },
+    {
+      "Status": "New Customer",
+      "Reviewed": 3,
+      "Before text": 3,
+      "After text": 3,
+      "Before references": 3,
+      "After references": 3
+    },
+    {
+      "Status": "Former Customer",
+      "Reviewed": 5,
+      "Before text": 3,
+      "After text": 4,
+      "Before references": 3,
+      "After references": 4
+    },
+    {
+      "Status": "Not Interested",
+      "Reviewed": 21,
+      "Before text": 19,
+      "After text": 19,
+      "Before references": 19,
+      "After references": 19
+    },
+    {
+      "Status": "No Meeting",
+      "Reviewed": 3,
+      "Before text": 3,
+      "After text": 3,
+      "Before references": 3,
+      "After references": 3
+    },
+    {
+      "Status": "Unclassified",
+      "Reviewed": 9,
+      "Before text": 9,
+      "After text": 9,
+      "Before references": 9,
+      "After references": 9
+    }
+  ],
+  "remaining": 21,
+  "changed_full": {
+    "text": 8,
+    "references": 8
+  },
+  "transitions": {
+    "text": [
+      {
+        "Before": "Potential Customer",
+        "After": "Unclassified",
+        "Count": 3
+      },
+      {
+        "Before": "Potential Customer",
+        "After": "Former Customer",
+        "Count": 2
+      },
+      {
+        "Before": "Potential Customer",
+        "After": "Target Customer",
+        "Count": 2
+      },
+      {
+        "Before": "Unclassified",
+        "After": "Former Customer",
+        "Count": 1
+      }
+    ],
+    "references": [
+      {
+        "Before": "Potential Customer",
+        "After": "Unclassified",
+        "Count": 3
+      },
+      {
+        "Before": "Potential Customer",
+        "After": "Former Customer",
+        "Count": 2
+      },
+      {
+        "Before": "Potential Customer",
+        "After": "Target Customer",
+        "Count": 2
+      },
+      {
+        "Before": "Unclassified",
+        "After": "Former Customer",
+        "Count": 1
+      }
+    ]
+  },
+  "references_effect": 132,
+  "manual_conflicts": 21,
+  "manual_preserved": 2603,
+  "timings_seconds": {
+    "before": {
+      "text": [
+        2.802082199996221,
+        2.442659599997569,
+        2.7186917000071844
+      ],
+      "references": [
+        9.016155399993295,
+        7.951945599997998,
+        7.339936600008514
+      ]
+    },
+    "after": {
+      "text": [
+        2.9894597999955295,
+        3.1682342999993125,
+        2.166562200000044
+      ],
+      "references": [
+        3.471573699993314,
+        3.210164899996016,
+        3.4213899000023957
+      ]
+    }
+  },
+  "timing_medians": {
+    "before": {
+      "text": 2.7186917000071844,
+      "references": 7.951945599997998
+    },
+    "after": {
+      "text": 2.9894597999955295,
+      "references": 3.4213899000023957
+    }
+  }
+}

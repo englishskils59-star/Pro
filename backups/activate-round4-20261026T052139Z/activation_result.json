@@ -1,0 +1,46 @@
+{
+  "engine": "context-rules-4",
+  "definitions": "owner-reviewed-2026-10-26-round4",
+  "visits": 13503,
+  "distribution": {
+    "Potential Customer": 4695,
+    "Unclassified": 3547,
+    "Target Customer": 2715,
+    "Current Customer": 1398,
+    "Not Interested": 655,
+    "No Meeting": 216,
+    "Former Customer": 181,
+    "New Customer": 96
+  },
+  "recent_approvals": 250,
+  "blank_not_applied": 0,
+  "old_conflicts_replaced": 21,
+  "saved_overrides": 2812,
+  "manual_applied": 2812,
+  "classification_and_rebuild_seconds": 13.4287794999982,
+  "data_dir": "D:\\Pro\\data",
+  "backup": "D:\\All pro\\Wadi project\\Wadi Visit\\backups\\activate-round4-20261026T052139Z",
+  "reload_verified": true,
+  "original_visits_ids_notes_unchanged": true,
+  "raw_excel_unchanged": true,
+  "transaction_status": "committed",
+  "browser_verification": {
+    "url": "http://127.0.0.1:8501/",
+    "visitsVisible": 13503,
+    "reasonsVisible": true,
+    "manualSourceVisible": true,
+    "reloadVerified": true,
+    "dashboardOpened": true,
+    "dashboardContentAndChartsVerified": true
+  },
+  "browser_verified_after_final_restart": true,
+  "active_process": {
+    "manual_fallback": true,
+    "pid": 41800,
+    "root": "D:\\All pro\\Wadi project\\Wadi Visit",
+    "url": "http://localhost:8501/",
+    "address": "0.0.0.0",
+    "port": 8501,
+    "startup_command": "python -m streamlit run app.py --server.address 0.0.0.0 --server.port 8501 --browser.gatherUsageStats false"
+  }
+}

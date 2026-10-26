@@ -283,6 +283,16 @@ def apply_saved_overrides(classified_df: pd.DataFrame) -> tuple[pd.DataFrame, in
     return _apply_saved_overrides(classified_df)
 
 
+def load_classification_references() -> pd.DataFrame:
+    """Previous persisted records only; never this batch's new predictions."""
+    p = _paths()["classified"]
+    if not p.exists():
+        return pd.DataFrame()
+    previous = apply_all_merges(_parquet_to_df(p))
+    previous, _ = _apply_saved_overrides(previous)
+    return previous
+
+
 def has_saved_data() -> bool:
     """Check if saved data exists in the data directory."""
     return _paths()["classified"].exists()
@@ -705,12 +715,21 @@ def _apply_saved_overrides(classified_df: pd.DataFrame) -> tuple[pd.DataFrame, i
         count = 0
         for _, row in overrides.iterrows():
             new_status = str(row["Manual Status"]).strip()
-            if new_status not in VALID_STATUSES:
+            if new_status not in set(VALID_STATUSES) | {"Unclassified"}:
                 continue
             for idx in key_to_idx.get(row.get("Key"), []):
                 from classification_context import apply_manual_result
                 from classification_engine import STATUS_DISPLAY
                 apply_manual_result(updated, idx, new_status, STATUS_DISPLAY)
+                source = safe_str(row.get("Approval Source"))
+                comment = safe_str(row.get("Reviewer Note"))
+                approved_at = safe_str(row.get("Approved At"))
+                if source:
+                    updated.at[idx, "Classification Reason"] += " | مصدر الاعتماد: " + source
+                    if approved_at:
+                        updated.at[idx, "Classification Reason"] += " | تاريخ الاعتماد: " + approved_at
+                    if comment:
+                        updated.at[idx, "Classification Reason"] += " | توضيح صاحب البرنامج: " + comment
                 count += 1
 
         return updated, count

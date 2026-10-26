@@ -1,0 +1,11 @@
+{
+  "status": "committed",
+  "files": [
+    "classified_data.parquet",
+    "journey_data.parquet",
+    "rep_kpi_data.parquet",
+    "overrides.parquet",
+    "metadata.json"
+  ],
+  "started_at": "2026-10-26T08:25:08.933635+03:00"
+}

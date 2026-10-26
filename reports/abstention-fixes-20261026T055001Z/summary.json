@@ -1,0 +1,43 @@
+{
+  "file": "C:\\Users\\eslam.abdelhay\\Desktop\\Unclassified_Visits (1).xlsx",
+  "file_rows": 3547,
+  "normalized_groups_before": 1696,
+  "matched_rows": 3547,
+  "isolated_rows": 0,
+  "isolated_ambiguous": 0,
+  "manual_preserved_rows": 9,
+  "before_engine_distribution": {
+    "Unclassified": 3546,
+    "Current Customer": 1
+  },
+  "new_exits": 80,
+  "new_exit_destinations": {
+    "Former Customer": 33,
+    "Potential Customer": 17,
+    "Current Customer": 16,
+    "No Meeting": 10,
+    "Target Customer": 4
+  },
+  "effective_after_distribution": {
+    "Unclassified": 3466,
+    "Former Customer": 33,
+    "Current Customer": 17,
+    "Potential Customer": 17,
+    "No Meeting": 10,
+    "Target Customer": 4
+  },
+  "remaining": 3466,
+  "remaining_categories": {
+    "نقص معلومات": 3248,
+    "صياغة غير مغطاة": 218,
+    "تعارض حقيقي": 0
+  },
+  "after_seconds": 1.2840365000010934,
+  "stored_before_nonunclassified": 0,
+  "source_saved": false,
+  "engine": "context-rules-4-abstention-fixes",
+  "normalized_groups_after": 1696,
+  "tests_passed": 126,
+  "new_test_methods": 22,
+  "business_hashes_unchanged": true
+}

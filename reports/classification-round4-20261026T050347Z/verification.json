@@ -1,0 +1,21 @@
+{
+  "tests": {
+    "total": 104,
+    "new": 19,
+    "passed": 104
+  },
+  "workbook_rows_verified": {
+    "التغييرات المعتمدة": 3,
+    "اتفاق عينة التطوير": 9,
+    "المقارنة والتفسير": 250,
+    "الاختلافات الباقية": 21,
+    "تعارض الحفظ اليدوي": 21,
+    "انتقالات النص": 4,
+    "انتقالات المراجع": 4,
+    "دليل القياس": 10
+  },
+  "original_note_strings_preserved": true,
+  "source_and_holdout_hashes_unchanged": true,
+  "workbook_sha256": "ab14a937f9e362387ff9ea220b66128f2238ecffb4876d9a77a62cbe9677604a",
+  "file": "D:\\All pro\\Wadi project\\Wadi Visit\\outputs\\classification-round4-20261026T050347Z\\development_comparison_round4.xlsx"
+}
